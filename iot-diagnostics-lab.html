@@ -1,0 +1,963 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IoT Diagnostics Lab</title>
+<style>
+:root{--bg:#0a0e13;--panel:#111821;--panel2:#0c1219;--line:#1e2935;--txt:#d9e2ec;--mut:#7f8c99;--acc:#f5a524;--cy:#22d3ee;--vi:#a78bfa;--ok:#22c55e;--warn:#eab308;--bad:#ef4444;--info:#60a5fa;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--txt);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:24px 24px;min-height:100vh}
+h1,h2,h3{margin:0;font-weight:600}
+h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+h2::before{content:"";width:3px;height:12px;background:var(--acc);display:inline-block}
+.wrap{max-width:1400px;margin:0 auto;padding:0 16px}
+.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0e151d,#0a0e13)}
+.brand{display:flex;gap:12px;align-items:center}
+.logo{width:38px;height:38px;border:1px solid var(--acc);color:var(--acc);display:grid;place-items:center;font-size:18px;clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%)}
+.brand h1{font-size:17px}
+.brand p{margin:0;color:var(--mut);font-size:12px;font-family:var(--mono)}
+.pills{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.pill{display:flex;flex-direction:column;padding:4px 10px;border:1px solid var(--line);border-left:3px solid var(--mut);background:var(--panel2);min-width:88px}
+.pill b{font-size:10px;color:var(--mut);font-weight:500;text-transform:uppercase;letter-spacing:.06em}
+.pill span{font-family:var(--mono);font-size:12.5px;font-weight:600}
+.s-ok{border-left-color:var(--ok)!important}.s-ok span,.t-ok{color:var(--ok)}
+.s-warn{border-left-color:var(--warn)!important}.s-warn span,.t-warn{color:var(--warn)}
+.s-bad{border-left-color:var(--bad)!important}.s-bad span,.t-bad{color:var(--bad)}
+.s-info{border-left-color:var(--info)!important}.s-info span,.t-info{color:var(--info)}
+.s-mut span,.t-mut{color:var(--mut)}
+.tag{font:700 11px var(--mono);padding:5px 9px;letter-spacing:.08em;border:1px solid}
+.tag.sim{color:var(--acc);border-color:var(--acc);background:rgba(245,165,36,.08)}
+.tag.real{color:var(--cy);border-color:var(--cy);background:rgba(34,211,238,.08)}
+.card{background:var(--panel);border:1px solid var(--line);padding:14px;min-width:0}
+.conbar{margin:14px 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end}
+.conbar .wide{grid-column:span 2}
+label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
+input,select,button{font:inherit;color:var(--txt)}
+input,select{background:var(--panel2);border:1px solid var(--line);padding:7px 8px;font-family:var(--mono);font-size:13px;width:100%;min-width:0;text-transform:none;letter-spacing:0}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--cy);outline-offset:1px}
+input[type=range]{padding:0;accent-color:var(--acc)}
+button{background:#18222d;border:1px solid #2a3846;padding:8px 12px;cursor:pointer;font-weight:600;font-size:13px}
+button:hover:not(:disabled){border-color:var(--acc);color:#fff}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.pri{background:var(--acc);color:#111;border-color:var(--acc)}
+button.pri:hover:not(:disabled){filter:brightness(1.1);color:#000}
+button.dan{border-color:rgba(239,68,68,.6);color:#fca5a5}
+button.sm{padding:5px 9px;font-size:12px}
+.banner{padding:9px 14px;margin:0 0 12px;font-size:13px;border:1px solid;display:flex;gap:10px;align-items:center}
+.banner.bad{border-color:var(--bad);background:rgba(239,68,68,.1);color:#fecaca}
+.banner.warn{border-color:var(--warn);background:rgba(234,179,8,.08);color:#fde68a}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto;margin-bottom:14px}
+.tabs button{background:none;border:none;border-bottom:2px solid transparent;color:var(--mut);padding:10px 14px;white-space:nowrap}
+.tabs button.on{color:var(--txt);border-bottom-color:var(--acc)}
+.tab{display:none}.tab.on{display:block}
+.grid{display:grid;gap:12px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))}
+.kpi .v{font:700 26px var(--mono);margin:2px 0}
+.kpi .sub{color:var(--mut);font-size:12px;font-family:var(--mono)}
+.big{font:700 40px var(--mono);color:var(--cy)}
+.big small{font-size:16px;color:var(--mut)}
+.rows{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px;margin-top:8px}
+.rows dt{color:var(--mut)}
+.rows dd{margin:0;font-family:var(--mono);text-align:right;overflow-wrap:anywhere}
+canvas{width:100%;height:150px;display:block;background:var(--panel2);border:1px solid var(--line);margin-top:10px}
+canvas.tall{height:220px}
+.legend{display:flex;gap:12px;font-size:11px;color:var(--mut);margin-top:6px;font-family:var(--mono)}
+.legend i{display:inline-block;width:10px;height:3px;margin-right:4px;vertical-align:middle}
+.lights{display:grid;gap:8px;margin-top:6px}
+.light{display:flex;gap:10px;align-items:center;padding:8px;background:var(--panel2);border:1px solid var(--line)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--mut);flex:none}
+.dot.ok{background:var(--ok);box-shadow:0 0 8px var(--ok)}.dot.warn{background:var(--warn);box-shadow:0 0 8px var(--warn)}.dot.bad{background:var(--bad);box-shadow:0 0 8px var(--bad)}
+.light b{font-size:13px}.light span{color:var(--mut);font-size:12px;margin-left:auto;font-family:var(--mono);text-align:right}
+.bar{height:6px;background:var(--panel2);border:1px solid var(--line);margin-top:8px}
+.bar>i{display:block;height:100%;background:var(--acc);width:0;transition:width .3s}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.mt{margin-top:10px}
+.note{font-size:12px;color:var(--mut);border-left:2px solid var(--line);padding-left:10px;margin-top:10px}
+.note.warn{border-left-color:var(--warn);color:#e7d38a}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{color:var(--mut);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+td{font-family:var(--mono)}
+.tscroll{overflow-x:auto}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:10px}
+.stat{background:var(--panel2);border:1px solid var(--line);padding:8px 10px}
+.stat b{display:block;font-size:10.5px;color:var(--mut);font-weight:500;text-transform:uppercase;letter-spacing:.05em}
+.stat span{font:700 18px var(--mono)}
+.stat small{color:var(--mut);font-size:11px}
+#log{height:300px;overflow:auto;background:var(--panel2);border:1px solid var(--line);font:12px/1.5 var(--mono);padding:6px 8px;margin-top:10px}
+#log div{white-space:pre-wrap;overflow-wrap:anywhere}
+.lv-info{color:#9fb3c8}.lv-ok{color:var(--ok)}.lv-warn{color:var(--warn)}.lv-err{color:#fca5a5}
+.res{display:grid;gap:6px;margin-top:10px}
+.res div{padding:8px 10px;background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--mut);font-size:13px}
+.res .pass{border-left-color:var(--ok)}.res .warn{border-left-color:var(--warn)}.res .fail{border-left-color:var(--bad)}
+.res small{display:block;color:var(--mut);font-family:var(--mono);font-size:11.5px;margin-top:2px}
+ul.recs{margin:8px 0 0;padding-left:18px;font-size:13px}ul.recs li{margin:4px 0}
+pre{background:var(--panel2);border:1px solid var(--line);padding:10px;overflow:auto;font:12px/1.45 var(--mono);color:#b9c7d6}
+details summary{cursor:pointer;color:var(--acc);font-weight:600;margin:4px 0}
+.knob{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.knob svg{width:130px;height:130px;flex:none}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1b2633;border:1px solid var(--acc);padding:10px 16px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:calc(100% - 32px);z-index:9}
+#toast.show{opacity:1}
+.sim-badge{font:700 10px var(--mono);color:var(--acc);border:1px solid var(--acc);padding:1px 5px;margin-left:6px}
+footer{color:var(--mut);font-size:11.5px;padding:24px 0;text-align:center}
+@media (max-width:640px){.conbar .wide{grid-column:span 1}.big{font-size:32px}.pill{min-width:0;flex:1 1 30%}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <div class="logo">◆</div>
+    <div><h1>IoT Connectivity &amp; Diagnostics Lab</h1><p>ESP32-C3 Mini · MPU6050 · HC-SR04 · KY-040 · SG90</p></div>
+  </div>
+  <div class="pills">
+    <span class="tag sim" id="modeTag">SIMULAÇÃO</span>
+    <div class="pill" id="pLink"><b>Servidor/Broker</b><span>OFFLINE</span></div>
+    <div class="pill" id="pDev"><b>ESP32</b><span>SEM DADOS</span></div>
+    <div class="pill" id="pWifi"><b>Wi-Fi</b><span>—</span></div>
+    <div class="pill" id="pProto"><b>Protocolo</b><span>MQTT</span></div>
+    <div class="pill" id="pUp"><b>Uptime ESP32</b><span>—</span></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="card conbar" aria-label="Conexão">
+    <label>Modo<select id="cMode"><option value="sim">Simulador</option><option value="real">ESP32 real</option></select></label>
+    <label>Protocolo<select id="cProto"><option value="mqtt">MQTT (via WebSocket)</option><option value="ws">WebSocket (Node.js)</option></select></label>
+    <label class="wide"><span id="urlLbl">URL do broker (listener WebSocket)</span><input id="cUrl" spellcheck="false"></label>
+    <label id="baseWrap">Tópico base<input id="cBase" spellcheck="false"></label>
+    <label>Device ID<input id="cDev" spellcheck="false"></label>
+    <label>Usuário<input id="cUser" autocomplete="off" spellcheck="false"></label>
+    <label><span id="passLbl">Senha</span><input id="cPass" type="password" autocomplete="off"></label>
+    <label id="kaWrap">Keepalive (s)<input id="cKa" type="number" min="5" max="120"></label>
+    <button class="pri" id="btnConn">Conectar</button>
+  </section>
+
+  <div class="banner warn" id="httpsBanner" hidden>⚠ Esta página está em HTTPS e a URL usa <code>ws://</code>. O navegador vai bloquear a conexão (conteúdo misto). Abra o arquivo localmente ou por HTTP na rede do laboratório, ou use <code>wss://</code> com certificado.</div>
+  <div class="banner bad" id="faultBanner" hidden>⛔ <span><b>FALHA SIMULADA ATIVA:</b> <span id="faultList"></span>. Comandos do servo estão bloqueados.</span></div>
+
+  <nav class="tabs" role="tablist">
+    <button data-tab="painel" class="on">Painel principal</button>
+    <button data-tab="sensores">Sensores</button>
+    <button data-tab="conect">Conectividade</button>
+    <button data-tab="lat">Latência</button>
+    <button data-tab="diag">Diagnóstico</button>
+    <button data-tab="rel">Relatórios</button>
+  </nav>
+
+  <!-- PAINEL -->
+  <section class="tab on" id="tab-painel">
+    <div class="grid g4">
+      <div class="card kpi"><h2>Estado do ESP32</h2><div class="v" id="kDev">—</div><div class="sub" id="kDevSub">aguardando telemetria</div></div>
+      <div class="card kpi"><h2>Wi-Fi</h2><div class="v" id="kWifi">—</div><div class="sub" id="kWifiSub">RSSI —</div><div class="bar"><i id="kRssiBar"></i></div></div>
+      <div class="card kpi"><h2>Protocolo ativo</h2><div class="v" id="kProto">—</div><div class="sub" id="kProtoSub">—</div></div>
+      <div class="card kpi"><h2>Uptime</h2><div class="v" id="kUp">—</div><div class="sub" id="kUpSub">link do painel: —</div></div>
+      <div class="card kpi"><h2>Telemetria</h2><div class="v" id="kHz">—</div><div class="sub" id="kHzSub">seq — · perdidas 0 · dup 0</div></div>
+      <div class="card kpi"><h2>RTT do link</h2><div class="v" id="kRtt">—</div><div class="sub" id="kRttSub">painel ↔ servidor/broker</div></div>
+      <div class="card kpi"><h2>Memória livre</h2><div class="v" id="kHeap">—</div><div class="sub" id="kHeapSub">mínima —</div></div>
+      <div class="card kpi"><h2>Último teste</h2><div class="v" id="kLast">—</div><div class="sub" id="kLastSub">nenhum teste de latência</div></div>
+    </div>
+    <div class="grid g2 mt">
+      <div class="card"><h2>Indicadores dos sensores</h2>
+        <div class="lights">
+          <div class="light"><i class="dot" id="lMpu"></i><b>MPU6050</b> <small class="t-mut">GPIO 1 SDA · 0 SCL</small><span id="lMpuT">—</span></div>
+          <div class="light"><i class="dot" id="lSon"></i><b>HC-SR04</b> <small class="t-mut">GPIO 4 TRIG · 3 ECHO</small><span id="lSonT">—</span></div>
+          <div class="light"><i class="dot" id="lEnc"></i><b>KY-040</b> <small class="t-mut">GPIO 5 · 6 · 7</small><span id="lEncT">—</span></div>
+          <div class="light"><i class="dot" id="lSrv"></i><b>SG90</b> <small class="t-mut">GPIO 10 PWM</small><span id="lSrvT">—</span></div>
+        </div>
+      </div>
+      <div class="card"><h2>Distância e aceleração (ao vivo)</h2>
+        <canvas id="cMini"></canvas>
+        <div class="legend"><span><i style="background:#22d3ee"></i>distância (cm)</span><span><i style="background:#f5a524"></i>|a| ×100 (g)</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SENSORES -->
+  <section class="tab" id="tab-sensores">
+    <div class="grid g2">
+      <div class="card"><h2>HC-SR04 · Distância <span id="simB1"></span></h2>
+        <div class="big" id="sDist">—<small> cm</small></div>
+        <dl class="rows">
+          <dt>Tempo de eco</dt><dd id="sEcho">—</dd>
+          <dt>Leituras válidas (últimos 10 s)</dt><dd id="sValid">—</dd>
+          <dt>Timeouts sem eco (painel / firmware)</dt><dd id="sTo">—</dd>
+          <dt>Fora da faixa 2–400 cm</dt><dd id="sOor">—</dd>
+          <dt>Estabilidade (desvio padrão, 20 amostras)</dt><dd id="sStd">—</dd>
+        </dl>
+        <canvas id="cDist"></canvas>
+      </div>
+      <div class="card"><h2>MPU6050 · Aceleração e giro <span id="simB2"></span></h2>
+        <div class="tscroll"><table>
+          <tr><th></th><th>X</th><th>Y</th><th>Z</th><th>|módulo|</th></tr>
+          <tr><th>Acel. (g)</th><td id="aX">—</td><td id="aY">—</td><td id="aZ">—</td><td id="aM">—</td></tr>
+          <tr><th>Giro (°/s)</th><td id="gX">—</td><td id="gY">—</td><td id="gZ">—</td><td id="gM">—</td></tr>
+        </table></div>
+        <dl class="rows">
+          <dt>Endereço I²C</dt><dd id="mAddr">—</dd>
+          <dt>Amostragem (firmware / recebida)</dt><dd id="mHz">—</dd>
+          <dt>Erros de leitura (firmware) / valores inválidos</dt><dd id="mErr">—</dd>
+        </dl>
+        <canvas id="cAcc"></canvas>
+        <div class="legend"><span><i style="background:#f5a524"></i>aX</span><span><i style="background:#22d3ee"></i>aY</span><span><i style="background:#a78bfa"></i>aZ</span></div>
+        <canvas id="cGyro"></canvas>
+        <div class="legend"><span><i style="background:#f5a524"></i>gX</span><span><i style="background:#22d3ee"></i>gY</span><span><i style="background:#a78bfa"></i>gZ</span></div>
+        <div class="row mt"><button id="btnMove">Teste de movimentação (5 s)</button><span id="moveRes" class="t-mut"></span></div>
+      </div>
+      <div class="card"><h2>KY-040 · Encoder rotativo <span id="simB3"></span></h2>
+        <div class="knob">
+          <svg viewBox="0 0 120 120" aria-label="Representação do encoder">
+            <g id="ticks"></g>
+            <circle cx="60" cy="60" r="36" fill="#18222d" stroke="#2a3846" stroke-width="2"/>
+            <g id="knob"><line x1="60" y1="60" x2="60" y2="30" stroke="#f5a524" stroke-width="4" stroke-linecap="round"/></g>
+            <circle id="knobBtn" cx="60" cy="60" r="9" fill="#2a3846"/>
+          </svg>
+          <dl class="rows" style="flex:1;min-width:180px">
+            <dt>Contador</dt><dd id="eCnt" style="font-size:20px;color:var(--cy)">—</dd>
+            <dt>Sentido</dt><dd id="eDir">—</dd>
+            <dt>Botão (SW)</dt><dd id="eBtn">—</dd>
+            <dt>Eventos/s</dt><dd id="eRate">—</dd>
+            <dt>Transições inválidas</dt><dd id="eInv">—</dd>
+          </dl>
+        </div>
+        <div class="row mt"><button class="sm" id="btnEncZero">Zerar referência (local)</button></div>
+      </div>
+      <div class="card"><h2>SG90 · Controle do servo</h2>
+        <div class="big" id="vReq">90<small>° solicitado</small></div>
+        <input type="range" id="srvRange" min="0" max="180" value="90" aria-label="Ângulo do servo">
+        <div class="row mt">
+          <label style="flex:1">Limite mín. (°)<input type="number" id="srvMin" min="0" max="180"></label>
+          <label style="flex:1">Limite máx. (°)<input type="number" id="srvMax" min="0" max="180"></label>
+        </div>
+        <div class="row mt">
+          <button class="sm" data-ang="min">Mín.</button><button class="sm" data-ang="90">90°</button><button class="sm" data-ang="max">Máx.</button>
+          <button class="pri" id="btnSrv">Enviar comando</button>
+          <button class="dan" id="btnSafe">Estado seguro</button>
+        </div>
+        <dl class="rows">
+          <dt>Último comando enviado</dt><dd id="srvSent">—</dd>
+          <dt>Estado do comando</dt><dd id="srvState">—</dd>
+          <dt>Tempo até ACK do firmware</dt><dd id="srvAck">—</dd>
+          <dt>Processamento no ESP32</dt><dd id="srvProc">—</dd>
+          <dt>Comando reportado na telemetria</dt><dd id="srvTel">—</dd>
+        </dl>
+        <p class="note warn">O SG90 não tem realimentação de posição. "Confirmado" significa que o firmware recebeu e aplicou o comando PWM — não que o eixo chegou ao ângulo.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONECTIVIDADE -->
+  <section class="tab" id="tab-conect">
+    <div class="grid g2">
+      <div class="card"><h2>Wi-Fi do ESP32-C3</h2>
+        <dl class="rows">
+          <dt>Estado</dt><dd id="wState">—</dd>
+          <dt>SSID</dt><dd id="wSsid">—</dd>
+          <dt>Endereço IP</dt><dd id="wIp">—</dd>
+          <dt>MAC Address</dt><dd id="wMac">—</dd>
+          <dt>Gateway</dt><dd id="wGw">—</dd>
+          <dt>RSSI</dt><dd id="wRssi">—</dd>
+          <dt>Canal</dt><dd id="wCh">—</dd>
+          <dt>Tempo de conexão inicial</dt><dd id="wConn">—</dd>
+          <dt>Desconexões Wi-Fi</dt><dd id="wDisc">—</dd>
+          <dt>Último tempo de reconexão</dt><dd id="wRec">—</dd>
+          <dt>Memória livre / mínima</dt><dd id="wHeap">—</dd>
+          <dt>Motivo do último reset</dt><dd id="wReset">—</dd>
+          <dt>Firmware</dt><dd id="wFw">—</dd>
+        </dl>
+      </div>
+      <div class="card"><h2>RSSI (dBm)</h2>
+        <canvas id="cRssi" class="tall"></canvas>
+        <p class="note">Referência: &gt; −60 excelente · −60 a −70 bom · −70 a −80 fraco · &lt; −80 instável para controle em tempo real.</p>
+      </div>
+      <div class="card"><h2>Servidor / Broker</h2>
+        <dl class="rows">
+          <dt>Estado do link</dt><dd id="bState">—</dd>
+          <dt>Endpoint</dt><dd id="bUrl">—</dd>
+          <dt>RTT do link (PINGRESP / heartbeat)</dt><dd id="bRtt">—</dd>
+          <dt>PUBACK do broker (QoS 1)</dt><dd id="bPuback">—</dd>
+          <dt>Mensagens recebidas / enviadas</dt><dd id="bRxTx">—</dd>
+          <dt>Payloads inválidos</dt><dd id="bBad">—</dd>
+          <dt>Descartadas por falha simulada</dt><dd id="bDrop">—</dd>
+          <dt>Quedas do link / reconexões</dt><dd id="bRec">—</dd>
+          <dt>Tempo médio de reconexão</dt><dd id="bRecAvg">—</dd>
+        </dl>
+      </div>
+      <div class="card"><h2>Dispositivos identificados</h2>
+        <div class="tscroll"><table><thead><tr><th>Device ID</th><th>Mensagens</th><th>Visto há</th><th>Alvo</th></tr></thead><tbody id="devTable"><tr><td colspan="4" class="t-mut">nenhum dispositivo</td></tr></tbody></table></div>
+        <details class="mt"><summary>Contrato de mensagens (para o firmware e o servidor)</summary>
+<pre>MQTT — tópicos (base configurável)
+  ESP32 → painel:  {base}/{deviceId}/up/telemetry | status | ack | event
+  painel → ESP32:  {base}/{deviceId}/down/ping | cmd
+  LWT do ESP32:    {base}/{deviceId}/up/status  payload "offline" (retain)
+
+WebSocket — ws://host:8080  (o servidor repassa pelo deviceId)
+  painel envia ao abrir: {"type":"hello","role":"dashboard","deviceId":"…","token":"…"}
+  heartbeat: {"type":"heartbeat","t0":…} → {"type":"heartbeatAck","t0":…}
+
+Telemetria (20–50 Hz)
+{"deviceId":"ESP32C3-KIT01","sequence":125,"timestamp":81234,"type":"telemetry",
+ "sensors":{"distance":25.4,"echoUs":1480,"accelX":0.12,"accelY":0.03,"accelZ":0.98,
+  "gyroX":0.4,"gyroY":-0.2,"gyroZ":0.1,"encoder":15,"encoderBtn":false,"servoCommand":90},
+ "diag":{"mpuOk":true,"mpuAddr":"0x68","mpuHz":100,"mpuErrors":0,
+  "sonarTimeouts":3,"sonarOutOfRange":0,"encoderInvalid":0}}
+  (distance = null quando não há eco; timestamp = millis() do ESP32)
+
+Status (1 Hz)
+{"deviceId":"…","type":"status","uptimeMs":81234,"freeHeap":182000,"minHeap":171000,
+ "resetReason":"POWERON","fw":"1.0.0",
+ "wifi":{"ssid":"LAB-IOT","ip":"192.168.0.50","mac":"…","gateway":"192.168.0.1",
+  "rssi":-58,"channel":6,"connectMs":2310,"disconnects":0,"reconnectMs":0}}
+
+Teste de latência (ACK de aplicação)
+painel → {"type":"ping","deviceId":"…","testId":"T…","sequence":42,"t0":1234.5}
+ESP32  → {"type":"ack","deviceId":"…","testId":"T…","sequence":42,"procUs":180}
+
+Comando do servo
+painel → {"type":"cmd","cmd":"servo","deviceId":"…","sequence":7,"angle":90}
+painel → {"type":"cmd","cmd":"safe","deviceId":"…","sequence":8}
+ESP32  → {"type":"cmdAck","deviceId":"…","sequence":7,"status":"ok","angle":90,"procUs":95}
+         (status "rejected" + "reason" se fora dos limites)</pre>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- LATÊNCIA -->
+  <section class="tab" id="tab-lat">
+    <div class="card"><h2>Teste de latência e desempenho</h2>
+      <div class="row">
+        <label>Duração<select id="tDur"><option value="10">10 s</option><option value="30">30 s</option><option value="60">60 s</option><option value="300">5 min</option></select></label>
+        <label>Taxa de pings<select id="tRate"><option value="5">5 Hz</option><option value="10" selected>10 Hz</option><option value="20">20 Hz</option><option value="50">50 Hz</option></select></label>
+        <label id="tQosWrap">QoS MQTT<select id="tQos"><option value="0">QoS 0</option><option value="1">QoS 1</option></select></label>
+        <label>Timeout do ACK<select id="tTo"><option value="1000">1 s</option><option value="2000" selected>2 s</option><option value="5000">5 s</option></select></label>
+        <button class="pri" id="btnTest">Iniciar teste</button>
+        <span id="tInfo" class="t-mut"></span>
+      </div>
+      <div class="bar"><i id="tBar"></i></div>
+      <div class="stats">
+        <div class="stat"><b>RTT mín.</b><span id="tMin">—</span> <small>ms</small></div>
+        <div class="stat"><b>RTT médio</b><span id="tAvg">—</span> <small>ms</small></div>
+        <div class="stat"><b>RTT máx.</b><span id="tMax">—</span> <small>ms</small></div>
+        <div class="stat"><b>P95</b><span id="tP95">—</span> <small>ms</small></div>
+        <div class="stat"><b>P99</b><span id="tP99">—</span> <small>ms</small></div>
+        <div class="stat"><b>Jitter</b><span id="tJit">—</span> <small>ms</small></div>
+        <div class="stat"><b>Taxa de ACKs</b><span id="tRateV">—</span> <small>msg/s</small></div>
+        <div class="stat"><b>Enviadas / confirmadas</b><span id="tSent">—</span></div>
+        <div class="stat"><b>Não confirmadas</b><span id="tLost">—</span> <small id="tLostP"></small></div>
+        <div class="stat"><b>Duplicadas</b><span id="tDup">—</span></div>
+        <div class="stat"><b>Reconexões no teste</b><span id="tRec">—</span> <small id="tRecMs"></small></div>
+        <div class="stat"><b>Processamento ESP32</b><span id="tProc">—</span> <small>ms</small></div>
+        <div class="stat"><b>Rede (RTT − proc.)</b><span id="tNet">—</span> <small>ms</small></div>
+        <div class="stat"><b>Até renderizar</b><span id="tRender">—</span> <small>ms</small></div>
+      </div>
+      <canvas id="cRtt" class="tall"></canvas>
+      <div class="legend"><span><i style="background:#f5a524"></i>RTT por mensagem (ms)</span><span><i style="background:#22d3ee"></i>processamento no ESP32 (ms)</span></div>
+      <p class="note">RTT = ida e volta medida com relógio monotônico (<code>performance.now()</code>) entre o envio do ping e o ACK de aplicação. Não é latência unidirecional; dividir por 2 só é aproximação se o caminho for simétrico. "Rede" desconta o tempo de processamento informado pelo ESP32 (<code>procUs</code>); "até renderizar" mede o atraso entre a chegada da mensagem e o próximo quadro desenhado no painel. Rode MQTT e WebSocket em testes separados para não haver interferência.</p>
+    </div>
+  </section>
+
+  <!-- DIAGNÓSTICO -->
+  <section class="tab" id="tab-diag">
+    <div class="grid g2">
+      <div class="card"><h2>Testes individuais</h2>
+        <div class="row">
+          <button data-diag="all" class="pri">Executar todos (exceto servo)</button>
+          <button data-diag="wifi">Wi-Fi</button>
+          <button data-diag="mpu">MPU6050</button>
+          <button data-diag="sonar">HC-SR04</button>
+          <button data-diag="enc">KY-040</button>
+          <button data-diag="servo">SG90</button>
+          <button class="sm" id="btnClrRes">Limpar</button>
+        </div>
+        <div class="res" id="diagRes"><div>Nenhum teste executado.</div></div>
+      </div>
+      <div class="card"><h2>Simulação de falhas</h2>
+        <div class="row">
+          <button id="fNet">Derrubar link de rede</button>
+          <button id="fBroker">Servidor/broker indisponível (10 s)</button>
+        </div>
+        <label class="mt">Atraso artificial injetado no cliente: <b id="fDelayV">0 ms</b><input type="range" id="fDelay" min="0" max="500" step="10" value="0"></label>
+        <label class="mt">Descarte de mensagens recebidas: <b id="fDropV">0 %</b><input type="range" id="fDrop" min="0" max="50" step="1" value="0"></label>
+        <div class="row mt"><label style="flex-direction:row;align-items:center;gap:8px;text-transform:none"><input type="checkbox" id="fSens" style="width:auto"> Substituir sensores por dados simulados</label></div>
+        <div class="row mt"><button class="dan" id="fClear">Limpar todas as falhas</button></div>
+        <p class="note">Falhas ficam identificadas no topo, nos logs e nos relatórios. Enquanto houver falha ativa ou o link não estiver ONLINE, o painel não envia comandos ao servo. Para atraso no lado do servidor, use a opção equivalente do servidor Node.js.</p>
+      </div>
+      <div class="card"><h2>Recomendações de correção</h2><ul class="recs" id="recs"><li class="t-mut">Conecte para gerar recomendações.</li></ul></div>
+      <div class="card"><h2>Notas de hardware (ESP32-C3 Mini)</h2>
+        <ul class="recs">
+          <li>GPIO 2, 8 e 9 são pinos de <i>strapping</i> do C3 (GPIO 9 = BOOT; GPIO 8 costuma ter o LED da placa). Por isso estão reservados.</li>
+          <li>I²C: <code>Wire.begin(1, 0)</code> → SDA = GPIO 1, SCL = GPIO 0. Confirme pull-ups (o módulo GY-521 já traz 4,7 kΩ).</li>
+          <li>ECHO do HC-SR04 sai em 5 V: use divisor (ex.: 1 kΩ / 2 kΩ) ou conversor de nível até o GPIO 3.</li>
+          <li>SG90: alimente por fonte 5 V separada (pico ~650 mA), com GND comum ao ESP32. Não use o 3V3 da placa.</li>
+          <li>KY-040: pull-ups internos ou do módulo em CLK/DT/SW; capacitores de 10 nF ajudam no debounce.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card mt"><h2>Histórico de eventos</h2>
+      <div class="row">
+        <label style="flex-direction:row;align-items:center;gap:8px">Filtro<select id="logF" style="width:auto"><option value="">todos</option><option value="info">info</option><option value="ok">ok</option><option value="warn">alertas</option><option value="err">erros</option></select></label>
+        <button class="sm" id="btnLogExp">Exportar log (CSV)</button>
+        <button class="sm" id="btnLogClr">Limpar</button>
+      </div>
+      <div id="log" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <!-- RELATÓRIOS -->
+  <section class="tab" id="tab-rel">
+    <div class="card"><h2>Resultados por sessão</h2>
+      <div class="row"><button id="btnCsv">Exportar CSV</button><button id="btnJson">Exportar JSON</button><button class="dan sm" id="btnClrSes">Apagar sessões</button></div>
+      <div class="tscroll mt"><table><thead><tr><th>Data</th><th>Modo</th><th>Prot.</th><th>QoS</th><th>Dur.</th><th>Hz</th><th>Env./Conf.</th><th>Perda</th><th>Dup.</th><th>Mín</th><th>Méd</th><th>Máx</th><th>P95</th><th>P99</th><th>Jitter</th><th>msg/s</th><th>Recon.</th><th>Falhas</th></tr></thead><tbody id="sesTable"></tbody></table></div>
+    </div>
+    <div class="card mt"><h2>Comparação MQTT × WebSocket</h2>
+      <div class="tscroll"><table><thead><tr><th>Métrica</th><th>MQTT</th><th>WebSocket</th><th>Melhor</th></tr></thead><tbody id="cmpTable"></tbody></table></div>
+      <p class="note" id="cmpNote">Usa o teste mais recente de cada protocolo.</p>
+    </div>
+  </section>
+
+  <footer>SENAI XR Lab · IoT Connectivity &amp; Diagnostics Lab — funciona offline na rede local</footer>
+</div>
+<div id="toast" role="status"></div>
+
+<script>
+'use strict';
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const now=()=>performance.now();
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const f=(v,d=1)=>Number.isFinite(v)?v.toFixed(d):'—';
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const gauss=()=>{let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)};
+const fmtDur=ms=>{if(!Number.isFinite(ms))return'—';let s=Math.floor(ms/1000);const h=Math.floor(s/3600);s%=3600;const m=Math.floor(s/60);s%=60;return (h?h+'h ':'')+String(m).padStart(2,'0')+'m '+String(s).padStart(2,'0')+'s'};
+const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const enc=new TextEncoder(),dec=new TextDecoder();
+
+const DEF={mode:'sim',proto:'mqtt',mqttUrl:'ws://192.168.0.10:9001',wsUrl:'ws://192.168.0.10:8080',base:'senai/iotlab',deviceId:'ESP32C3-KIT01',user:'',pass:'',keepalive:15,staleMs:3000,servoMin:10,servoMax:170};
+const cfg=Object.assign({},DEF,store.get('iotlab.cfg',{}));
+const saveCfg=()=>store.set('iotlab.cfg',Object.assign({},cfg,{pass:''}));
+
+const S={link:'OFFLINE',linkSince:0,downAt:0,linkDrops:0,reconnects:[],brokerRtt:null,pubAckMs:null,
+  rxCount:0,txCount:0,bad:0,dropped:0,devices:new Map(),
+  lastTelem:0,lastStatus:0,telem:null,sensors:null,status:null,lwt:false,telemSeq:null,telemLost:0,telemDup:0,telemTimes:[],
+  buf:[],sonar:{to:0,oor:0},mpuInvalid:0,encOff:0,lastEnc:null,encEvents:[],lastBtn:false,lastWifiDisc:null,
+  servo:{seq:0,pending:new Map(),sent:null,state:'—',ackMs:null,proc:null,lastSend:0},
+  faults:{delay:0,drop:0,sensorSim:false,blockUntil:0},
+  renderLat:0,lastRxT:0,lastPaintRx:0,sessions:store.get('iotlab.sessions',[])};
+let conn=null, T=null;
+
+/* ---------- log ---------- */
+const LOG=[];
+function log(lvl,msg){const e={t:new Date(),lvl,msg};LOG.push(e);if(LOG.length>3000)LOG.shift();logLine(e)}
+function logLine(e){const fl=$('#logF').value;if(fl&&fl!==e.lvl)return;const d=document.createElement('div');d.className='lv-'+e.lvl;d.textContent=`${e.t.toLocaleTimeString('pt-BR')}.${String(e.t.getMilliseconds()).padStart(3,'0')}  ${e.lvl.toUpperCase().padEnd(4)}  ${e.msg}`;const L=$('#log');L.prepend(d);while(L.children.length>400)L.lastChild.remove()}
+function redrawLog(){$('#log').innerHTML='';LOG.slice(-400).forEach(logLine)}
+let toastT;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),3200)}
+
+/* ---------- estado do link ---------- */
+const ONL=s=>s==='ONLINE'||s==='INSTÁVEL';
+function setLink(st,why){
+  const prev=S.link;if(st===prev)return;
+  S.link=st;S.linkSince=now();
+  if(ONL(prev)&&(st==='RECONECTANDO'||st==='ERRO')&&!S.downAt){S.downAt=now();S.linkDrops++;if(T)T.drops++;cancelServoPending('link perdido')}
+  if(st==='OFFLINE'){S.downAt=0;cancelServoPending('desconectado')}
+  if(st==='ONLINE'&&S.downAt){const d=now()-S.downAt;S.reconnects.push({at:Date.now(),ms:d});if(T)T.reconn.push(d);S.downAt=0;log('ok',`Link restabelecido em ${d.toFixed(0)} ms`)}
+  const lv={ONLINE:'ok','INSTÁVEL':'warn',OFFLINE:'info',RECONECTANDO:'warn',ERRO:'err'}[st];
+  log(lv,`Link ${prev} → ${st}${why?' ('+why+')':''}`);
+  updConnUI();
+}
+
+/* ---------- MQTT 3.1.1 mínimo sobre WebSocket ---------- */
+function mStr(s){const b=enc.encode(s);return[b.length>>8,b.length&255,...b]}
+function mLen(n){const o=[];do{let d=n%128;n=Math.floor(n/128);if(n>0)d|=128;o.push(d)}while(n>0);return o}
+function mPkt(h,body){const l=mLen(body.length);const u=new Uint8Array(1+l.length+body.length);u[0]=h;u.set(l,1);u.set(body,1+l.length);return u}
+function mConnect(id,ka,user,pass,will){let fl=0x02;const p=[...mStr(id)];if(will){fl|=0x04|(will.qos<<3)|(will.retain?0x20:0);p.push(...mStr(will.topic),...mStr(will.msg))}if(user){fl|=0x80;p.push(...mStr(user))}if(user&&pass){fl|=0x40;p.push(...mStr(pass))}return mPkt(0x10,[...mStr('MQTT'),4,fl,ka>>8,ka&255,...p])}
+
+class BaseConn{
+  constructor(){this.manual=false;this.tries=0;this.rt=null}
+  connect(){this.manual=false;this.tries=0;this.open()}
+  close(){this.manual=true;clearTimeout(this.rt);this._close();setLink('OFFLINE','desconectado pelo usuário')}
+  scheduleReconnect(){if(this.manual)return;clearTimeout(this.rt);const d=Math.min(30000,500*2**this.tries)+Math.random()*300;this.tries++;setLink('RECONECTANDO',`tentativa ${this.tries} em ${(d/1000).toFixed(1)} s`);this.rt=setTimeout(()=>{if(!this.manual)this.open()},d)}
+  blocked(){if(S.faults.blockUntil>now()){setLink('ERRO','servidor/broker indisponível — falha simulada');this.scheduleReconnect();return true}return false}
+}
+
+class WsConn extends BaseConn{
+  open(){
+    if(this.blocked())return;
+    if(!ONL(S.link))setLink('RECONECTANDO','abrindo WebSocket');
+    let ws;try{ws=new WebSocket(cfg.wsUrl)}catch(e){setLink('ERRO',e.message);return this.scheduleReconnect()}
+    this.ws=ws;const to=setTimeout(()=>{if(ws.readyState!==1){log('warn','Timeout ao abrir WebSocket (5 s)');ws.close()}},5000);
+    ws.onopen=()=>{clearTimeout(to);this.tries=0;this.lastRx=now();this.send({type:'hello',role:'dashboard',deviceId:cfg.deviceId,user:cfg.user||undefined,token:cfg.pass||undefined});setLink('ONLINE','WebSocket aberto');this.hb=setInterval(()=>this.beat(),2000)};
+    ws.onmessage=ev=>{this.lastRx=now();let o;try{o=JSON.parse(ev.data)}catch(e){return badPayload('JSON inválido')}onMessage(o)};
+    ws.onerror=()=>log('err','Erro no WebSocket (verifique IP, porta e se o servidor está ativo)');
+    ws.onclose=ev=>{clearTimeout(to);clearInterval(this.hb);if(this.ws!==ws)return;this.ws=null;if(!this.manual){log('warn',`WebSocket fechado (código ${ev.code})`);if(!ONL(S.link)&&S.link!=='RECONECTANDO')setLink('ERRO','falha ao conectar');this.scheduleReconnect()}};
+  }
+  beat(){
+    if(!this.ws||this.ws.readyState!==1)return;
+    this.ws.send(JSON.stringify({type:'heartbeat',t0:now()}));
+    const idle=now()-this.lastRx;
+    if(idle>12000){log('warn','Heartbeat sem resposta por 12 s — reiniciando conexão');this.ws.close()}
+    else if(idle>6000&&S.link==='ONLINE')setLink('INSTÁVEL','sem resposta de heartbeat');
+    else if(idle<6000&&S.link==='INSTÁVEL')setLink('ONLINE','heartbeat restabelecido');
+  }
+  send(o){if(!this.ws||this.ws.readyState!==1)return false;this.ws.send(JSON.stringify(o));S.txCount++;return true}
+  _close(){const w=this.ws;this.ws=null;clearInterval(this.hb);if(w)w.close()}
+  kill(){if(this.ws){log('warn','Falha simulada: link WebSocket derrubado');this.ws.close()}}
+}
+
+class MqttConn extends BaseConn{
+  constructor(){super();this.pid=0;this.inflight=new Map();this.buf=new Uint8Array(0)}
+  topic(k){return `${cfg.base}/${cfg.deviceId}/down/${k}`}
+  open(){
+    if(this.blocked())return;
+    if(!ONL(S.link))setLink('RECONECTANDO','abrindo MQTT sobre WebSocket');
+    let ws;try{ws=new WebSocket(cfg.mqttUrl,['mqtt'])}catch(e){setLink('ERRO',e.message);return this.scheduleReconnect()}
+    ws.binaryType='arraybuffer';this.ws=ws;this.buf=new Uint8Array(0);this.connected=false;this.pingT0=0;
+    this.to=setTimeout(()=>{if(!this.connected){log('warn','Sem CONNACK em 5 s');ws.close()}},5000);
+    ws.onopen=()=>{const id='dash-'+Math.random().toString(16).slice(2,8);this.raw(mConnect(id,cfg.keepalive,cfg.user,cfg.pass,{topic:`${cfg.base}/dashboard/${id}/status`,msg:'offline',qos:1,retain:false}))};
+    ws.onmessage=ev=>{this.lastRx=now();this.feed(new Uint8Array(ev.data))};
+    ws.onerror=()=>log('err','Erro no WebSocket do broker (confirme "listener 9001 / protocol websockets" no Mosquitto)');
+    ws.onclose=()=>{clearTimeout(this.to);clearInterval(this.pingT);this.connected=false;this.pingT0=0;if(this.ws!==ws)return;this.ws=null;if(!this.manual){log('warn','Conexão com o broker fechada');if(!ONL(S.link)&&S.link!=='RECONECTANDO')setLink('ERRO','falha ao conectar');this.scheduleReconnect()}};
+  }
+  raw(u8){if(this.ws&&this.ws.readyState===1){this.ws.send(u8);return true}return false}
+  feed(chunk){
+    const b=new Uint8Array(this.buf.length+chunk.length);b.set(this.buf);b.set(chunk,this.buf.length);let off=0;
+    while(b.length-off>=2){let i=off+1,mul=1,len=0,byte,ok=true;do{if(i>=b.length){ok=false;break}byte=b[i++];len+=(byte&127)*mul;mul*=128}while(byte&128);if(!ok||b.length<i+len)break;this.pkt(b[off]>>4,b[off]&15,b.subarray(i,i+len));off=i+len}
+    this.buf=b.slice(off);
+  }
+  pkt(type,flags,body){
+    switch(type){
+      case 2:
+        if(body[1]===0){clearTimeout(this.to);this.tries=0;this.connected=true;setLink('ONLINE','CONNACK aceito');this.sub(`${cfg.base}/+/up/#`,1);clearInterval(this.pingT);this.pingT=setInterval(()=>this.ping(),Math.max(2,cfg.keepalive/2)*1000)}
+        else{const c={1:'versão de protocolo recusada',2:'client id recusado',3:'servidor indisponível',4:'usuário/senha inválidos',5:'não autorizado'};setLink('ERRO','CONNACK: '+(c[body[1]]||body[1]));this.ws.close()}
+        break;
+      case 3:{const qos=(flags>>1)&3,tl=(body[0]<<8)|body[1],topic=dec.decode(body.subarray(2,2+tl));let p=2+tl;if(qos>0){const id=(body[p]<<8)|body[p+1];p+=2;this.raw(new Uint8Array([0x40,2,id>>8,id&255]))}this.onPub(topic,dec.decode(body.subarray(p)));break}
+      case 4:{const id=(body[0]<<8)|body[1],t=this.inflight.get(id);if(t!=null){this.inflight.delete(id);S.pubAckMs=now()-t}break}
+      case 9:log(body[2]===0x80?'err':'ok',`SUBACK ${cfg.base}/+/up/# — ${body[2]===0x80?'inscrição recusada (ACL?)':'QoS concedido '+body[2]}`);break;
+      case 13:if(this.pingT0){S.brokerRtt=now()-this.pingT0;this.pingT0=0;if(S.link==='INSTÁVEL')setLink('ONLINE','PINGRESP recebido')}break;
+    }
+  }
+  sub(t,q){this.pid=(this.pid%65535)+1;this.raw(mPkt(0x82,[this.pid>>8,this.pid&255,...mStr(t),q]))}
+  ping(){
+    if(this.pingT0){const w=now()-this.pingT0;if(w>cfg.keepalive*1000){log('warn','PINGRESP não recebido dentro do keepalive — reconectando');this.ws&&this.ws.close();return}if(w>3000&&S.link==='ONLINE')setLink('INSTÁVEL','PINGRESP atrasado');return}
+    this.pingT0=now();this.raw(new Uint8Array([0xC0,0]));
+  }
+  onPub(topic,txt){
+    const rest=topic.startsWith(cfg.base+'/')?topic.slice(cfg.base.length+1).split('/'):topic.split('/');
+    const dev=rest[0],kind=rest[2];
+    if(txt==='offline'||txt==='online')return onMessage({type:'lwt',deviceId:dev,state:txt});
+    let o;try{o=JSON.parse(txt)}catch(e){return badPayload(`JSON inválido em ${topic}`)}
+    if(o&&typeof o==='object'){if(!o.deviceId)o.deviceId=dev;if(!o.type&&kind)o.type=kind}
+    onMessage(o);
+  }
+  send(o,opt={}){
+    if(!this.connected)return false;const qos=opt.qos||0;const body=[...mStr(this.topic(opt.kind||o.type))];
+    if(qos){this.pid=(this.pid%65535)+1;body.push(this.pid>>8,this.pid&255);this.inflight.set(this.pid,now());if(this.inflight.size>500)this.inflight.delete(this.inflight.keys().next().value)}
+    const pl=enc.encode(JSON.stringify(o));const all=new Uint8Array(body.length+pl.length);all.set(body);all.set(pl,body.length);
+    const ok=this.raw(mPkt(0x30|(qos<<1),all));if(ok)S.txCount++;return ok;
+  }
+  _close(){const w=this.ws;this.ws=null;clearInterval(this.pingT);this.connected=false;if(w){try{w.send(new Uint8Array([0xE0,0]))}catch(e){}w.close()}}
+  kill(){if(this.ws){log('warn','Falha simulada: conexão MQTT derrubada sem DISCONNECT');this.ws.close()}}
+}
+
+/* ---------- Simulador (claramente identificado) ---------- */
+const SIM={seq:0,boot:0,enc:0,servo:90,sonarTO:0,disc:0,
+  start(c){this.c=c;if(!this.boot)this.boot=Date.now();this.stop();this.t=setInterval(()=>this.telem(),50);this.st=setInterval(()=>this.status(),1000);this.status()},
+  stop(){clearInterval(this.t);clearInterval(this.st)},
+  sensors(){const tt=Date.now()/1000,mv=Math.sin(tt*0.25)>0.7;let d=25+10*Math.sin(tt*0.4)+gauss()*0.3;let to=false;if(Math.random()<0.01){d=null;to=true;this.sonarTO++}
+    if(Math.random()<0.06){this.enc+=Math.sin(tt*0.2)>0?1:-1}
+    return{to,s:{distance:d==null?null:+d.toFixed(1),echoUs:d==null?null:Math.round(d*58.2),accelX:+((mv?Math.sin(tt*4)*0.35:0)+gauss()*0.01).toFixed(3),accelY:+((mv?Math.cos(tt*3)*0.25:0)+gauss()*0.01).toFixed(3),accelZ:+(0.99+gauss()*0.01).toFixed(3),
+    gyroX:+((mv?Math.cos(tt*4)*80:0)+gauss()*0.4).toFixed(2),gyroY:+((mv?Math.sin(tt*3)*60:0)+gauss()*0.4).toFixed(2),gyroZ:+(gauss()*0.4).toFixed(2),encoder:this.enc,encoderBtn:(tt%9)<0.4,servoCommand:this.servo}}},
+  telem(){const {s}=this.sensors();this.c.deliver({deviceId:cfg.deviceId,sequence:++this.seq,timestamp:Date.now()-this.boot,type:'telemetry',sim:true,sensors:s,diag:{mpuOk:true,mpuAddr:'0x68',mpuHz:100,mpuErrors:0,sonarTimeouts:this.sonarTO,sonarOutOfRange:0,encoderInvalid:0}})},
+  status(){this.rssi=clamp((this.rssi??-58)+gauss()*1.2,-75,-45);this.c.deliver({deviceId:cfg.deviceId,type:'status',sim:true,uptimeMs:Date.now()-this.boot,freeHeap:Math.round(182000+gauss()*800),minHeap:171200,resetReason:'POWERON',fw:'sim-1.0',wifi:{ssid:'LAB-IOT (sim)',ip:'192.168.0.50',mac:'34:85:18:00:AA:01',gateway:'192.168.0.1',rssi:Math.round(this.rssi),channel:6,connectMs:2310,disconnects:this.disc,reconnectMs:this.disc?1800:0}})},
+  handle(o){const c=this.c;if(!o||!o.type)return;
+    if(o.type==='ping'){const p=0.15+Math.random()*0.6;setTimeout(()=>c.deliver({type:'ack',deviceId:cfg.deviceId,testId:o.testId,sequence:o.sequence,procUs:Math.round(p*1000)}),p)}
+    else if(o.type==='heartbeat')c.deliver({type:'heartbeatAck',t0:o.t0});
+    else if(o.type==='cmd'){if(o.cmd==='safe'){this.servo=90;return c.deliver({type:'cmdAck',deviceId:cfg.deviceId,sequence:o.sequence,status:'safe',angle:90,procUs:60})}
+      const a=Number(o.angle);if(!Number.isFinite(a)||a<0||a>180)return c.deliver({type:'cmdAck',deviceId:cfg.deviceId,sequence:o.sequence,status:'rejected',reason:'ângulo inválido',procUs:40});
+      this.servo=Math.round(a);c.deliver({type:'cmdAck',deviceId:cfg.deviceId,sequence:o.sequence,status:'ok',angle:this.servo,procUs:Math.round(70+Math.random()*60)})}
+  }
+};
+class SimConn extends BaseConn{
+  open(){if(this.blocked())return;if(!ONL(S.link))setLink('RECONECTANDO','conectando ao simulador');clearTimeout(this.ot);this.ot=setTimeout(()=>{if(this.manual)return;this.on=true;this.tries=0;setLink('ONLINE','simulador conectado');SIM.start(this);this.hb=setInterval(()=>this.send({type:'heartbeat',t0:now()}),2000)},250+Math.random()*250)}
+  owd(){const b=cfg.proto==='mqtt'?3.4:2.2;return b+Math.random()*2.4+(Math.random()<0.03?12+Math.random()*35:0)}
+  deliver(o){if(!this.on)return;setTimeout(()=>{if(this.on)onMessage(o)},this.owd())}
+  send(o){if(!this.on)return false;S.txCount++;setTimeout(()=>{if(this.on)SIM.handle(o)},this.owd());return true}
+  _close(){this.on=false;clearTimeout(this.ot);clearInterval(this.hb);SIM.stop()}
+  kill(){if(!this.on)return;log('warn','Falha simulada: link do simulador derrubado');this._close();this.manual=false;setLink('RECONECTANDO','queda simulada');SIM.disc++;this.scheduleReconnect()}
+}
+
+/* ---------- recepção ---------- */
+function badPayload(why){S.bad++;if(S.bad<=50||S.bad%50===0)log('err','Payload rejeitado: '+why)}
+function validate(o){
+  if(!o||typeof o!=='object'||Array.isArray(o))return'não é objeto JSON';
+  if(typeof o.type!=='string')return'campo "type" ausente';
+  if(o.type==='heartbeatAck')return null;
+  if(typeof o.deviceId!=='string'||!o.deviceId||o.deviceId.length>64)return'deviceId ausente ou inválido';
+  if(o.type==='telemetry'){if(!Number.isInteger(o.sequence)||o.sequence<0)return'sequence inválido';if(!o.sensors||typeof o.sensors!=='object')return'objeto sensors ausente'}
+  if((o.type==='ack'||o.type==='cmdAck')&&!Number.isInteger(o.sequence))return'ACK sem sequence';
+  return null;
+}
+function onMessage(o){
+  if(S.faults.drop>0&&Math.random()<S.faults.drop/100){S.dropped++;return}
+  if(S.faults.delay>0)return void setTimeout(()=>route(o),S.faults.delay);
+  route(o);
+}
+function route(o){
+  const err=validate(o);if(err)return badPayload(err);
+  S.rxCount++;S.lastRxT=now();
+  if(o.type==='heartbeatAck'){if(o.t0)S.brokerRtt=now()-o.t0;return}
+  const d=S.devices.get(o.deviceId)||{n:0,last:0};d.n++;d.last=now();if(!S.devices.has(o.deviceId))log('info',`Dispositivo identificado: ${o.deviceId}`);S.devices.set(o.deviceId,d);
+  if(o.deviceId!==cfg.deviceId)return;
+  switch(o.type){
+    case'telemetry':onTelem(o);break;
+    case'status':onStatus(o);break;
+    case'ack':onAck(o);break;
+    case'cmdAck':onCmdAck(o);break;
+    case'event':log(['info','ok','warn','err'].includes(o.level)?o.level:'info',`[${o.deviceId}] ${o.msg}`);break;
+    case'lwt':if(o.state==='offline'){S.lwt=true;log('err',`LWT: ${o.deviceId} desconectou de forma inesperada`)}else{S.lwt=false;log('ok',`${o.deviceId} anunciou ONLINE`)}break;
+    default:badPayload('tipo desconhecido: '+o.type);
+  }
+}
+function onTelem(o){
+  const t=now();
+  if(S.telemSeq!=null){const d=o.sequence-S.telemSeq;
+    if(d<=0&&d>-1000){S.telemDup++;return}
+    if(d<=-1000||(o.sequence<5&&S.telemSeq>100)){log('warn',`Sequência reiniciou (${S.telemSeq} → ${o.sequence}) — possível reset do ESP32`)}
+    else if(d>1)S.telemLost+=d-1;}
+  S.telemSeq=o.sequence;S.lastTelem=t;S.lwt=false;S.telem=o;S.telemTimes.push(t);
+  const sn=S.faults.sensorSim?SIM.sensors().s:o.sensors;S.sensors=sn;S.sensorsSim=!!(S.faults.sensorSim||o.sim);
+  const dg=o.diag||{};
+  // HC-SR04
+  const dist=sn.distance,dv=Number.isFinite(dist)&&dist>=0;const to=!dv;const oor=dv&&(dist<2||dist>400);
+  if(to)S.sonar.to++;if(oor)S.sonar.oor++;
+  // MPU
+  const A=[sn.accelX,sn.accelY,sn.accelZ],G=[sn.gyroX,sn.gyroY,sn.gyroZ];
+  const inv=A.some(v=>!Number.isFinite(v)||Math.abs(v)>16)||G.some(v=>!Number.isFinite(v)||Math.abs(v)>2000);if(inv)S.mpuInvalid++;
+  const am=inv?NaN:Math.hypot(...A),gm=inv?NaN:Math.hypot(...G);
+  // encoder
+  const ec=Number(sn.encoder);if(Number.isFinite(ec)){if(S.lastEnc!=null&&ec!==S.lastEnc){const dir=Math.sign(ec-S.lastEnc);for(let k=0;k<Math.min(20,Math.abs(ec-S.lastEnc));k++)S.encEvents.push({t,dir})}S.lastEnc=ec}
+  if(sn.encoderBtn&&!S.lastBtn)S.encEvents.push({t,btn:true});S.lastBtn=!!sn.encoderBtn;
+  S.buf.push({t,dist:dv&&!oor?dist:null,to,oor,am,gm,inv,ec,btn:!!sn.encoderBtn,mpuOk:dg.mpuOk,encInv:dg.encoderInvalid});
+  const cut=t-30000;while(S.buf.length&&S.buf[0].t<cut)S.buf.shift();while(S.encEvents.length&&S.encEvents[0].t<cut)S.encEvents.shift();while(S.telemTimes.length&&S.telemTimes[0]<t-2000)S.telemTimes.shift();
+  chDist.push([dv&&!oor?dist:NaN]);chAcc.push(A);chGyro.push(G);chMini.push([dv&&!oor?dist:NaN,am*100]);
+}
+function onStatus(o){
+  S.status=o;S.lastStatus=now();const w=o.wifi||{};
+  if(Number.isFinite(w.rssi))chRssi.push([w.rssi]);
+  if(Number.isFinite(w.disconnects)){if(S.lastWifiDisc!=null&&w.disconnects>S.lastWifiDisc)log('warn',`ESP32 relatou ${w.disconnects-S.lastWifiDisc} nova(s) desconexão(ões) Wi-Fi; reconexão em ${w.reconnectMs??'?'} ms`);S.lastWifiDisc=w.disconnects}
+}
+
+/* ---------- estado derivado ---------- */
+function devState(){if(!S.lastTelem)return'SEM DADOS';if(S.lwt)return'OFFLINE';const a=now()-S.lastTelem;if(a<cfg.staleMs/2)return'ONLINE';if(a<cfg.staleMs)return'INSTÁVEL';return'OFFLINE'}
+function wifiState(){if(S.link==='ERRO')return'ERRO';if(S.link==='RECONECTANDO')return'RECONECTANDO';const d=devState();if(d==='SEM DADOS')return S.link==='OFFLINE'?'OFFLINE':'—';if(d==='OFFLINE')return'OFFLINE';const r=S.status?.wifi?.rssi;if(d==='INSTÁVEL'||(Number.isFinite(r)&&r<-80))return'INSTÁVEL';return'ONLINE'}
+const cls=s=>({ONLINE:'ok','INSTÁVEL':'warn',OFFLINE:'bad',RECONECTANDO:'info',ERRO:'bad'}[s]||'mut');
+function pill(id,st){const p=$(id);p.className='pill s-'+cls(st);p.querySelector('span').textContent=st}
+function anyFault(){const F=S.faults,l=[];if(F.delay)l.push(`atraso ${F.delay} ms`);if(F.drop)l.push(`descarte ${F.drop}%`);if(F.sensorSim)l.push('sensores simulados');if(F.blockUntil>now())l.push('servidor indisponível');return l}
+
+/* ---------- servo ---------- */
+function canCommand(){
+  if(!conn||S.link!=='ONLINE'){toast('Comando bloqueado: link não está ONLINE');return false}
+  if(devState()!=='ONLINE'){toast('Comando bloqueado: ESP32 sem telemetria recente');return false}
+  if(anyFault().length){toast('Comando bloqueado: há falha simulada ativa');return false}
+  return true;
+}
+function cancelServoPending(why){if(S.servo.pending.size){S.servo.pending.clear();S.servo.state='CANCELADO — '+why;log('warn','Comandos pendentes do servo cancelados: '+why)}}
+function sendServo(a,silent){
+  if(!canCommand())return false;
+  if(now()-S.servo.lastSend<100){toast('Limite de frequência: no máximo 10 comandos/s');return false}
+  a=clamp(Math.round(a),cfg.servoMin,cfg.servoMax);const seq=++S.servo.seq;
+  S.servo.pending.set(seq,now());S.servo.lastSend=now();S.servo.sent=a;S.servo.state='ENVIADO — aguardando ACK';
+  conn.send({type:'cmd',cmd:'servo',deviceId:cfg.deviceId,sequence:seq,angle:a,timestamp:Date.now()},{kind:'cmd',qos:1});
+  if(!silent)log('info',`Servo: comando #${seq} → ${a}°`);
+  setTimeout(()=>{if(S.servo.pending.has(seq)){S.servo.pending.delete(seq);S.servo.state='TIMEOUT — sem ACK do firmware';log('err',`Servo: comando #${seq} sem ACK em 2 s`)}},2000);
+  return seq;
+}
+function onCmdAck(o){
+  const t0=S.servo.pending.get(o.sequence);if(t0==null)return;S.servo.pending.delete(o.sequence);
+  S.servo.ackMs=now()-t0;S.servo.proc=Number.isFinite(o.procUs)?o.procUs/1000:null;
+  S.servo.state=o.status==='ok'?`CONFIRMADO PELO FIRMWARE (${o.angle}°)`:o.status==='safe'?'ESTADO SEGURO APLICADO':`REJEITADO: ${o.reason||'—'}`;
+  S.servo.lastAck={seq:o.sequence,status:o.status};
+}
+
+/* ---------- teste de latência ---------- */
+function startTest(){
+  if(T){return stopTest(true)}
+  if(!conn||S.link!=='ONLINE')return toast('Conecte antes de iniciar o teste');
+  if(devState()!=='ONLINE')toast('Atenção: ESP32 sem telemetria recente — os pings podem não ser respondidos');
+  const dur=+$('#tDur').value,rate=+$('#tRate').value,qos=cfg.proto==='mqtt'?+$('#tQos').value:null,toMs=+$('#tTo').value;
+  T={id:'T'+Date.now().toString(36),proto:cfg.proto,mode:cfg.mode,qos,dur,rate,toMs,start:now(),startWall:new Date(),endAt:now()+dur*1000,seq:0,pending:new Map(),done:new Set(),lostSet:new Set(),rtts:[],procs:[],nets:[],dup:0,late:0,sent:0,drops:0,reconn:[],rssi:[],faults:anyFault()};
+  chRtt.clear();
+  T.timer=setInterval(tick,1000/rate);
+  $('#btnTest').textContent='Parar teste';
+  log('info',`Teste ${T.id} iniciado: ${cfg.proto.toUpperCase()}${qos!=null?' QoS '+qos:''}, ${dur} s a ${rate} Hz${T.faults.length?' — COM FALHAS: '+T.faults.join(', '):''}`);
+}
+function tick(){
+  const t=now();
+  for(const [s,t0] of T.pending)if(t-t0>T.toMs){T.pending.delete(s);T.lostSet.add(s)}
+  if(Number.isFinite(S.status?.wifi?.rssi))T.rssi.push(S.status.wifi.rssi);
+  if(t>=T.endAt){clearInterval(T.timer);T.timer=null;setTimeout(()=>finishTest(),T.toMs+100);return}
+  const seq=++T.seq,t0=now();T.pending.set(seq,t0);T.sent++;
+  if(!conn||!conn.send({type:'ping',deviceId:cfg.deviceId,testId:T.id,sequence:seq,t0:+t0.toFixed(3)},{kind:'ping',qos:T.qos||0})){/* link fora: permanece pendente e vira perda */}
+}
+function onAck(o){
+  if(!T||o.testId!==T.id)return;const s=o.sequence;
+  if(T.done.has(s)){T.dup++;return}
+  if(T.lostSet.has(s)){T.late++;T.done.add(s);return}
+  const t0=T.pending.get(s);if(t0==null)return;
+  T.pending.delete(s);T.done.add(s);
+  const rtt=now()-t0,proc=Number.isFinite(o.procUs)?o.procUs/1000:NaN;
+  T.rtts.push(rtt);if(Number.isFinite(proc)){T.procs.push(proc);T.nets.push(rtt-proc)}
+  chRtt.push([rtt,proc]);
+}
+function stats(a){if(!a.length)return null;const s=[...a].sort((x,y)=>x-y),q=p=>s[Math.min(s.length-1,Math.max(0,Math.ceil(p*s.length)-1))];let j=0;for(let i=1;i<a.length;i++)j+=Math.abs(a[i]-a[i-1]);return{min:s[0],avg:s.reduce((x,y)=>x+y,0)/s.length,max:s[s.length-1],p95:q(.95),p99:q(.99),jitter:a.length>1?j/(a.length-1):0}}
+const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:NaN;
+function finishTest(aborted){
+  if(!T)return;clearInterval(T.timer);
+  for(const s of T.pending.keys())T.lostSet.add(s);T.pending.clear();
+  const el=Math.min(now(),T.endAt)-T.start,st=stats(T.rtts)||{};
+  const r={id:T.id,data:T.startWall.toISOString(),modo:T.mode==='sim'?'SIMULADO':'REAL',protocolo:T.proto==='mqtt'?'MQTT':'WebSocket',qos:T.qos??'',duracao_s:+(el/1000).toFixed(1),taxa_hz:T.rate,
+    enviadas:T.sent,confirmadas:T.rtts.length,nao_confirmadas:T.lostSet.size-T.late,atrasadas:T.late,duplicadas:T.dup,perda_pct:T.sent?+((T.lostSet.size-T.late)/T.sent*100).toFixed(2):0,
+    rtt_min:+f(st.min,2),rtt_med:+f(st.avg,2),rtt_max:+f(st.max,2),p95:+f(st.p95,2),p99:+f(st.p99,2),jitter:+f(st.jitter,2),msg_s:+(T.rtts.length/(el/1000)).toFixed(1),
+    proc_med_ms:+f(mean(T.procs),3),rede_med_ms:+f(mean(T.nets),2),render_ms:+f(S.renderLat,1),reconexoes:T.reconn.length,reconexao_med_ms:+f(mean(T.reconn),0),quedas:T.drops,rssi_med:+f(mean(T.rssi),0),
+    falhas:T.faults.join('; '),interrompido:!!aborted};
+  Object.keys(r).forEach(k=>{if(typeof r[k]==='number'&&!Number.isFinite(r[k]))r[k]=null});
+  S.sessions.unshift(r);if(S.sessions.length>200)S.sessions.pop();store.set('iotlab.sessions',S.sessions);
+  log(r.perda_pct>1?'warn':'ok',`Teste ${T.id} ${aborted?'interrompido':'concluído'}: RTT méd ${f(st.avg,2)} ms · P99 ${f(st.p99,2)} ms · perda ${r.perda_pct}% · ${r.msg_s} msg/s`);
+  T=null;$('#btnTest').textContent='Iniciar teste';renderSessions();
+}
+function stopTest(){if(T){clearInterval(T.timer);T.endAt=now();finishTest(true)}}
+
+/* ---------- gráficos leves (sem dependências) ---------- */
+const charts=[];
+class Chart{
+  constructor(cv,o){this.cv=cv;this.o=Object.assign({len:240,min:null,max:null,colors:['#f5a524','#22d3ee','#a78bfa'],n:1},o);this.data=Array.from({length:this.o.n},()=>[]);this.dirty=true;charts.push(this)}
+  push(v){v.forEach((x,i)=>{const d=this.data[i];if(!d)return;d.push(x);if(d.length>this.o.len)d.shift()});this.dirty=true}
+  clear(){this.data.forEach(d=>d.length=0);this.dirty=true}
+  draw(){
+    if(!this.dirty)return;const cv=this.cv,w=cv.clientWidth,h=cv.clientHeight;if(!w||!h)return;this.dirty=false;
+    const r=window.devicePixelRatio||1;if(cv.width!==Math.round(w*r)||cv.height!==Math.round(h*r)){cv.width=Math.round(w*r);cv.height=Math.round(h*r)}
+    const g=cv.getContext('2d');g.setTransform(r,0,0,r,0,0);g.clearRect(0,0,w,h);
+    let mn=this.o.min,mx=this.o.max;
+    if(mn==null||mx==null){let a=Infinity,b=-Infinity;this.data.forEach(d=>d.forEach(v=>{if(Number.isFinite(v)){if(v<a)a=v;if(v>b)b=v}}));if(a===Infinity){a=0;b=1}if(a===b){a-=1;b+=1}const p=(b-a)*.1;if(mn==null)mn=a-p;if(mx==null)mx=b+p}
+    const L=40,R=6,Tp=6,B=6,W=w-L-R,H=h-Tp-B,y=v=>Tp+H-(v-mn)/(mx-mn)*H;
+    g.font='10px ui-monospace,monospace';g.fillStyle='#6b7a88';g.strokeStyle='#1a2430';g.lineWidth=1;
+    for(let i=0;i<=4;i++){const v=mn+(mx-mn)*i/4,yy=y(v);g.beginPath();g.moveTo(L,yy);g.lineTo(w-R,yy);g.stroke();g.fillText(Math.abs(v)>=100?v.toFixed(0):v.toFixed(Math.abs(v)>=10?1:2),2,yy+3)}
+    const len=this.o.len;
+    this.data.forEach((d,si)=>{g.strokeStyle=this.o.colors[si];g.lineWidth=1.5;g.beginPath();let pen=false;const off=len-d.length;
+      d.forEach((v,i)=>{if(!Number.isFinite(v)){pen=false;return}const x=L+W*(i+off)/(len-1),yy=y(clamp(v,mn,mx));if(pen)g.lineTo(x,yy);else{g.moveTo(x,yy);pen=true}});g.stroke()});
+  }
+}
+const chDist=new Chart($('#cDist'),{min:0});
+const chAcc=new Chart($('#cAcc'),{n:3});
+const chGyro=new Chart($('#cGyro'),{n:3});
+const chMini=new Chart($('#cMini'),{n:2,colors:['#22d3ee','#f5a524'],min:0});
+const chRssi=new Chart($('#cRssi'),{len:300,min:-95,max:-30});
+const chRtt=new Chart($('#cRtt'),{n:2,len:400,min:0});
+function frame(){charts.forEach(c=>c.draw());if(S.lastRxT>S.lastPaintRx){const rl=now()-S.lastRxT;S.renderLat=S.renderLat?S.renderLat*.95+rl*.05:rl;S.lastPaintRx=S.lastRxT}requestAnimationFrame(frame)}
+
+/* ---------- UI ---------- */
+function setText(id,v){const e=$(id);if(e&&e.textContent!==String(v))e.textContent=v}
+function updConnUI(){
+  const real=cfg.mode==='real',mq=cfg.proto==='mqtt';
+  const tg=$('#modeTag');tg.textContent=real?'ESP32 REAL':'SIMULAÇÃO';tg.className='tag '+(real?'real':'sim');
+  $('#urlLbl').textContent=mq?'URL do broker (listener WebSocket)':'URL do servidor WebSocket';
+  $('#cUrl').value=mq?cfg.mqttUrl:cfg.wsUrl;$('#baseWrap').style.display=mq?'':'none';$('#kaWrap').style.display=mq?'':'none';$('#tQosWrap').style.display=mq?'':'none';
+  $('#passLbl').textContent=mq?'Senha':'Token';
+  const busy=!!conn;['#cMode','#cProto','#cUrl','#cBase','#cDev','#cUser','#cPass','#cKa'].forEach(s=>$(s).disabled=busy);
+  if(!real)['#cUrl','#cBase','#cUser','#cPass','#cKa'].forEach(s=>$(s).disabled=true);
+  $('#btnConn').textContent=busy?'Desconectar':'Conectar';$('#btnConn').className=busy?'dan':'pri';
+  const url=mq?cfg.mqttUrl:cfg.wsUrl;$('#httpsBanner').hidden=!(real&&location.protocol==='https:'&&url.startsWith('ws://'));
+  pill('#pLink',S.link);
+}
+function ui(){
+  const ds=devState(),ws=wifiState(),st=S.status||{},w=st.wifi||{},sn=S.sensors||{},dg=S.telem?.diag||{},t=now();
+  pill('#pLink',S.link);pill('#pDev',ds);pill('#pWifi',ws);
+  setText('#pProto span',(cfg.proto==='mqtt'?'MQTT':'WebSocket'));
+  setText('#pUp span',Number.isFinite(st.uptimeMs)?fmtDur(st.uptimeMs):'—');
+  const hz=S.telemTimes.length/2;
+  // painel
+  setText('#kDev',ds);$('#kDev').className='v t-'+cls(ds);
+  setText('#kDevSub',S.lastTelem?`última telemetria há ${f((t-S.lastTelem)/1000,1)} s`:'aguardando telemetria');
+  setText('#kWifi',ws);$('#kWifi').className='v t-'+cls(ws);
+  setText('#kWifiSub',Number.isFinite(w.rssi)?`RSSI ${w.rssi} dBm · ${w.ssid||'—'}`:'RSSI —');
+  $('#kRssiBar').style.width=Number.isFinite(w.rssi)?clamp((w.rssi+95)/65*100,0,100)+'%':'0';
+  setText('#kProto',cfg.proto==='mqtt'?'MQTT':'WebSocket');setText('#kProtoSub',(cfg.mode==='sim'?'simulador':cfg.proto==='mqtt'?cfg.mqttUrl:cfg.wsUrl));
+  setText('#kUp',Number.isFinite(st.uptimeMs)?fmtDur(st.uptimeMs):'—');setText('#kUpSub','link do painel: '+(ONL(S.link)?fmtDur(t-S.linkSince):S.link));
+  setText('#kHz',S.lastTelem?f(hz,0)+' Hz':'—');setText('#kHzSub',`seq ${S.telemSeq??'—'} · perdidas ${S.telemLost} · dup ${S.telemDup}`);
+  setText('#kRtt',S.brokerRtt!=null?f(S.brokerRtt,1)+' ms':'—');
+  setText('#kHeap',Number.isFinite(st.freeHeap)?f(st.freeHeap/1024,1)+' kB':'—');setText('#kHeapSub','mínima '+(Number.isFinite(st.minHeap)?f(st.minHeap/1024,1)+' kB':'—'));
+  const ls=S.sessions[0];setText('#kLast',ls?f(ls.rtt_med,1)+' ms':'—');setText('#kLastSub',ls?`${ls.protocolo} ${ls.modo} · P99 ${f(ls.p99,1)} · perda ${ls.perda_pct}%`:'nenhum teste de latência');
+  // janelas recentes
+  const win=S.buf.filter(b=>b.t>t-10000);const fresh=ds==='ONLINE'||ds==='INSTÁVEL';
+  const vd=win.filter(b=>b.dist!=null),toW=win.filter(b=>b.to).length,oorW=win.filter(b=>b.oor).length;
+  const last20=vd.slice(-20).map(b=>b.dist),m20=mean(last20),sd=last20.length>1?Math.sqrt(mean(last20.map(v=>(v-m20)**2))):NaN;
+  const lights=[
+    ['#lMpu','#lMpuT',!fresh?'':dg.mpuOk===false?'bad':win.some(b=>b.inv)?'warn':'ok',!fresh?'sem dados':dg.mpuOk===false?'não detectado':`${dg.mpuAddr||'0x68'} · |a| ${f(win.at(-1)?.am,2)} g`],
+    ['#lSon','#lSonT',!fresh?'':!win.length?'':vd.length/win.length<.8?'bad':(toW||oorW)?'warn':'ok',!fresh?'sem dados':`${f(sn.distance,1)} cm · ${toW} timeouts/10 s`],
+    ['#lEnc','#lEncT',!fresh?'':(dg.encoderInvalid>0)?'warn':'ok',!fresh?'sem dados':`contagem ${Number(sn.encoder)-S.encOff}`],
+    ['#lSrv','#lSrvT',!fresh?'':/TIMEOUT|REJEITADO/.test(S.servo.state)?'bad':'ok',!fresh?'sem dados':`cmd ${sn.servoCommand??'—'}° · ${S.servo.state.split(' ')[0]}`]];
+  lights.forEach(([d,tx,c,m])=>{$(d).className='dot '+c;setText(tx,m)});
+  // sensores
+  const sb=S.sensorsSim?'<span class="sim-badge">DADOS SIMULADOS</span>':'';['#simB1','#simB2','#simB3'].forEach(i=>{if($(i).innerHTML!==sb)$(i).innerHTML=sb});
+  $('#sDist').firstChild.textContent=Number.isFinite(sn.distance)?f(sn.distance,1):(S.lastTelem?'sem eco':'—');
+  setText('#sEcho',Number.isFinite(sn.echoUs)?sn.echoUs+' µs':'—');
+  setText('#sValid',win.length?`${vd.length}/${win.length} (${f(vd.length/win.length*100,0)}%)`:'—');
+  setText('#sTo',`${S.sonar.to} / ${dg.sonarTimeouts??'—'}`);setText('#sOor',`${S.sonar.oor}${dg.sonarOutOfRange!=null?' / '+dg.sonarOutOfRange:''}`);
+  setText('#sStd',Number.isFinite(sd)?`±${f(sd,2)} cm ${sd<0.5?'(estável)':sd<2?'(moderado)':'(instável)'}`:'—');
+  ['X','Y','Z'].forEach(a=>{setText('#a'+a,f(sn['accel'+a],3));setText('#g'+a,f(sn['gyro'+a],2))});
+  const lb=S.buf.at(-1);setText('#aM',f(lb?.am,3));setText('#gM',f(lb?.gm,2));
+  setText('#mAddr',dg.mpuOk===false?'NÃO DETECTADO (0x68/0x69)':(dg.mpuAddr||'—'));setText('#mHz',`${dg.mpuHz??'—'} Hz / ${S.lastTelem?f(hz,0):'—'} Hz`);setText('#mErr',`${dg.mpuErrors??'—'} / ${S.mpuInvalid}`);
+  const ec=Number(sn.encoder);const rel=Number.isFinite(ec)?ec-S.encOff:null;setText('#eCnt',rel??'—');
+  $('#knob').setAttribute('transform',`rotate(${(rel||0)*18} 60 60)`);$('#knobBtn').setAttribute('fill',sn.encoderBtn?'#f5a524':'#2a3846');
+  const ev1=S.encEvents.filter(e=>e.t>t-1000&&e.dir),ld=S.encEvents.filter(e=>e.dir).at(-1);
+  setText('#eDir',ld&&t-ld.t<1500?(ld.dir>0?'↻ horário':'↺ anti-horário'):'parado');setText('#eBtn',sn.encoderBtn?'PRESSIONADO':'solto');setText('#eRate',f(ev1.length,0));setText('#eInv',dg.encoderInvalid??'—');
+  setText('#srvSent',S.servo.sent!=null?S.servo.sent+'°':'—');setText('#srvState',S.servo.state);setText('#srvAck',S.servo.ackMs!=null?f(S.servo.ackMs,1)+' ms':'—');setText('#srvProc',S.servo.proc!=null?f(S.servo.proc,3)+' ms':'—');setText('#srvTel',sn.servoCommand!=null?sn.servoCommand+'°':'—');
+  const blocked=!conn||S.link!=='ONLINE'||ds!=='ONLINE'||anyFault().length>0;['#btnSrv','#btnSafe'].forEach(s=>$(s).disabled=blocked&&s!=='#btnSafe'?true:!conn||S.link!=='ONLINE');
+  // conectividade
+  setText('#wState',ws);$('#wState').className='t-'+cls(ws);
+  setText('#wSsid',w.ssid||'—');setText('#wIp',w.ip||'—');setText('#wMac',w.mac||'—');setText('#wGw',w.gateway||'—');
+  setText('#wRssi',Number.isFinite(w.rssi)?`${w.rssi} dBm (${w.rssi>-60?'excelente':w.rssi>-70?'bom':w.rssi>-80?'fraco':'instável'})`:'—');setText('#wCh',w.channel??'—');
+  setText('#wConn',Number.isFinite(w.connectMs)?w.connectMs+' ms':'—');setText('#wDisc',w.disconnects??'—');setText('#wRec',Number.isFinite(w.reconnectMs)&&w.reconnectMs?w.reconnectMs+' ms':'—');
+  setText('#wHeap',Number.isFinite(st.freeHeap)?`${f(st.freeHeap/1024,1)} / ${f(st.minHeap/1024,1)} kB`:'—');setText('#wReset',st.resetReason||'—');setText('#wFw',st.fw||'—');
+  setText('#bState',S.link);$('#bState').className='t-'+cls(S.link);setText('#bUrl',cfg.mode==='sim'?'simulador local':(cfg.proto==='mqtt'?cfg.mqttUrl:cfg.wsUrl));
+  setText('#bRtt',S.brokerRtt!=null?f(S.brokerRtt,1)+' ms':'—');setText('#bPuback',cfg.proto==='mqtt'&&S.pubAckMs!=null?f(S.pubAckMs,1)+' ms':'—');
+  setText('#bRxTx',`${S.rxCount} / ${S.txCount}`);setText('#bBad',S.bad);setText('#bDrop',S.dropped);setText('#bRec',`${S.linkDrops} / ${S.reconnects.length}`);setText('#bRecAvg',S.reconnects.length?f(mean(S.reconnects.map(r=>r.ms)),0)+' ms':'—');
+  const rows=[...S.devices].map(([id,d])=>`<tr><td>${esc(id)}</td><td>${d.n}</td><td>${f((t-d.last)/1000,1)} s</td><td>${id===cfg.deviceId?'<span class="t-ok">● alvo</span>':'—'}</td></tr>`).join('');
+  const tb=$('#devTable');const html=rows||'<tr><td colspan="4" class="t-mut">nenhum dispositivo</td></tr>';if(tb.innerHTML!==html)tb.innerHTML=html;
+  // falhas
+  const fl=anyFault();$('#faultBanner').hidden=!fl.length;setText('#faultList',fl.join(' · '));
+  // teste ao vivo
+  if(T){const el=now()-T.start,s=stats(T.rtts)||{};$('#tBar').style.width=clamp(el/(T.dur*1000)*100,0,100)+'%';
+    setText('#tInfo',`${T.id} · ${f(Math.min(el,T.dur*1000)/1000,0)}/${T.dur} s${T.faults.length?' · COM FALHAS':''}`);
+    paintStats(s,{sent:T.sent,ok:T.rtts.length,lost:T.lostSet.size-T.late,dup:T.dup,rate:T.rtts.length/(el/1000),rec:T.reconn,proc:mean(T.procs),net:mean(T.nets)});}
+  setText('#tRender',f(S.renderLat,1));
+}
+function paintStats(s,x){
+  setText('#tMin',f(s.min,2));setText('#tAvg',f(s.avg,2));setText('#tMax',f(s.max,2));setText('#tP95',f(s.p95,2));setText('#tP99',f(s.p99,2));setText('#tJit',f(s.jitter,2));
+  setText('#tRateV',f(x.rate,1));setText('#tSent',`${x.sent} / ${x.ok}`);setText('#tLost',x.lost);setText('#tLostP',x.sent?`(${f(x.lost/x.sent*100,2)}%)`:'');setText('#tDup',x.dup);
+  setText('#tRec',x.rec.length);setText('#tRecMs',x.rec.length?`méd ${f(mean(x.rec),0)} ms`:'');setText('#tProc',f(x.proc,3));setText('#tNet',f(x.net,2));
+}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+
+/* ---------- recomendações ---------- */
+function recs(){
+  const out=[],st=S.status||{},w=st.wifi||{},dg=S.telem?.diag||{},t=now();
+  if(!conn)return['<span class="t-mut">Conecte para gerar recomendações.</span>'];
+  if(S.link==='ERRO'||S.link==='RECONECTANDO')out.push(cfg.proto==='mqtt'?'Broker inacessível: confirme o IP do PC, a porta 9001 e o bloco <code>listener 9001 / protocol websockets</code> no mosquitto.conf; libere a porta no firewall do Windows.':'Servidor WebSocket inacessível: confirme se o Node.js está rodando, o IP/porta e o firewall.');
+  if(S.link==='ONLINE'&&devState()==='SEM DADOS')out.push(`Link ok, mas nenhuma telemetria de <code>${esc(cfg.deviceId)}</code>. Verifique o deviceId no firmware, o tópico base e se o ESP32 está na mesma rede.`);
+  if(S.devices.size&&!S.devices.has(cfg.deviceId))out.push('Chegam mensagens de outro deviceId — ajuste o campo Device ID para o kit correto.');
+  if(devState()==='OFFLINE'&&S.lastTelem)out.push('ESP32 parou de publicar: verifique alimentação (o servo pode derrubar a tensão), watchdog/reset e o sinal Wi-Fi.');
+  if(Number.isFinite(w.rssi)&&w.rssi<-75)out.push(`RSSI de ${w.rssi} dBm: aproxime o kit do roteador, evite obstáculos metálicos ou use canal 1/6/11 menos congestionado.`);
+  if(w.disconnects>2)out.push(`${w.disconnects} quedas de Wi-Fi: considere <code>WiFi.setSleep(false)</code>, potência TX adequada e IP fixo/reserva DHCP.`);
+  if(dg.mpuOk===false)out.push('MPU6050 não detectado: confira SDA = GPIO 1, SCL = GPIO 0, VCC 3V3, GND e o pino AD0 (0x68 em GND, 0x69 em VCC).');
+  if(S.mpuInvalid>5)out.push('Leituras inválidas do MPU6050: reduza o clock I²C para 100 kHz e encurte os fios.');
+  const win=S.buf.filter(b=>b.t>t-10000),toW=win.filter(b=>b.to).length;
+  if(win.length&&toW/win.length>.1)out.push('Muitos timeouts no HC-SR04: verifique o divisor de tensão no ECHO (GPIO 3), alimentação 5 V do sensor e alvo dentro de 2–400 cm.');
+  if(dg.encoderInvalid>10)out.push('Transições inválidas no KY-040: aumente o debounce, use interrupção nos dois canais e capacitores de 10 nF em CLK/DT.');
+  if(/TIMEOUT/.test(S.servo.state))out.push('Servo sem ACK: confirme a assinatura do tópico de comando no firmware e a alimentação externa do SG90 com GND comum.');
+  if(Number.isFinite(st.minHeap)&&st.minHeap<30000)out.push('Memória mínima abaixo de 30 kB: reduza buffers JSON e evite String dinâmica no loop.');
+  if(S.telemLost>50)out.push(`${S.telemLost} telemetrias perdidas: reduza a taxa de publicação ou use QoS 1 nos tópicos críticos.`);
+  const ls=S.sessions[0];if(ls&&ls.p99>100)out.push(`P99 de ${ls.p99} ms no último teste: para controle de WebXR prefira P99 &lt; 50 ms; teste o outro protocolo e verifique o congestionamento da rede.`);
+  if(ls&&ls.perda_pct>1)out.push(`Perda de ${ls.perda_pct}% no último teste: verifique o sinal e, no MQTT, compare QoS 0 × QoS 1.`);
+  if(anyFault().length)out.push('Há falhas simuladas ativas — os resultados atuais não representam o comportamento real.');
+  return out.length?out:['<span class="t-ok">Nenhum problema detectado no momento.</span>'];
+}
+
+/* ---------- diagnósticos ---------- */
+function addRes(kind,title,detail){const r=$('#diagRes');if(r.firstChild&&r.firstChild.textContent==='Nenhum teste executado.')r.innerHTML='';const d=document.createElement('div');d.className=kind;d.innerHTML=`<b>${kind==='pass'?'✔':kind==='warn'?'⚠':'✖'} ${title}</b><small>${detail}</small>`;r.prepend(d);log(kind==='pass'?'ok':kind==='warn'?'warn':'err',`Diagnóstico ${title}: ${detail.replace(/<[^>]+>/g,'')}`)}
+function windowBuf(ms){const t=now();return S.buf.filter(b=>b.t>t-ms)}
+async function dWifi(){const w=S.status?.wifi,st=S.status;if(!w||now()-S.lastStatus>3000)return addRes('fail','Wi-Fi','Sem mensagens de status do ESP32 nos últimos 3 s.');
+  const q=w.rssi>-60?'excelente':w.rssi>-70?'bom':w.rssi>-80?'fraco':'instável';const k=w.rssi>-70&&!(w.disconnects>0)?'pass':w.rssi>-80?'warn':'fail';
+  addRes(k,'Wi-Fi',`RSSI ${w.rssi} dBm (${q}) · IP ${w.ip} · desconexões ${w.disconnects??0} · heap ${f(st.freeHeap/1024,1)} kB · link ${S.link}`)}
+async function dMpu(){await wait(3000);const b=windowBuf(3000);if(!b.length)return addRes('fail','MPU6050','Nenhuma telemetria em 3 s.');
+  if(b.at(-1).mpuOk===false)return addRes('fail','MPU6050','Sensor não detectado em 0x68/0x69 — verifique SDA=GPIO1/SCL=GPIO0.');
+  const inv=b.filter(x=>x.inv).length,mg=mean(b.filter(x=>!x.inv).map(x=>x.am)),hz=b.length/3;
+  const k=inv?'warn':Math.abs(mg-1)>.15?'warn':'pass';addRes(k,'MPU6050',`${b.length} amostras (${f(hz,0)} Hz recebidas) · |a| médio ${f(mg,3)} g${Math.abs(mg-1)>.15?' (fora de 1 g: mantenha parado ou calibre)':''} · inválidas ${inv}`)}
+async function dSonar(){await wait(3000);const b=windowBuf(3000);if(!b.length)return addRes('fail','HC-SR04','Nenhuma telemetria em 3 s.');
+  const v=b.filter(x=>x.dist!=null).map(x=>x.dist),to=b.filter(x=>x.to).length,oor=b.filter(x=>x.oor).length,m=mean(v),sd=v.length>1?Math.sqrt(mean(v.map(x=>(x-m)**2))):NaN,r=v.length/b.length;
+  addRes(r>.95&&sd<2?'pass':r>.8?'warn':'fail','HC-SR04',`válidas ${f(r*100,0)}% · média ${f(m,1)} cm · desvio ±${f(sd,2)} cm · timeouts ${to} · fora da faixa ${oor}`)}
+async function dEnc(){toast('Gire o encoder nos dois sentidos e pressione o botão (6 s)');const t0=now(),inv0=S.telem?.diag?.encoderInvalid??0;await wait(6000);
+  const ev=S.encEvents.filter(e=>e.t>t0),cw=ev.filter(e=>e.dir>0).length,ccw=ev.filter(e=>e.dir<0).length,btn=ev.filter(e=>e.btn).length,inv=(S.telem?.diag?.encoderInvalid??0)-inv0;
+  if(!S.buf.length)return addRes('fail','KY-040','Nenhuma telemetria.');
+  addRes(cw&&ccw&&btn&&inv<=2?'pass':(cw||ccw)?'warn':'fail','KY-040',`horário ${cw} · anti-horário ${ccw} · botão ${btn} · transições inválidas ${inv}${!cw&&!ccw?' — nenhuma rotação detectada (CLK=GPIO5, DT=GPIO6)':''}${!btn?' · botão não detectado (SW=GPIO7)':''}`)}
+async function dServo(){const a=[cfg.servoMin,Math.round((cfg.servoMin+cfg.servoMax)/2),cfg.servoMax];
+  if(!confirm(`O servo vai se mover para ${a.join('°, ')}°. A área está livre?`))return addRes('warn','SG90','Teste cancelado pelo usuário.');
+  let ok=0,ack=[];for(const x of a){const seq=sendServo(x,true);if(!seq)return addRes('fail','SG90','Comando bloqueado (link, telemetria ou falha ativa).');const t0=now();
+    while(now()-t0<2000&&S.servo.pending.has(seq))await wait(20);if(S.servo.lastAck?.seq===seq&&S.servo.lastAck.status==='ok'){ok++;ack.push(S.servo.ackMs)}await wait(700)}
+  addRes(ok===3?'pass':ok?'warn':'fail','SG90',`${ok}/3 comandos confirmados pelo firmware · ACK médio ${f(mean(ack),1)} ms · posição física não verificada (sem realimentação)`)}
+let diagBusy=false;
+async function runDiag(k){if(diagBusy)return toast('Aguarde o teste atual terminar');if(!conn)return toast('Conecte primeiro');diagBusy=true;$$('[data-diag]').forEach(b=>b.disabled=true);
+  try{const m={wifi:dWifi,mpu:dMpu,sonar:dSonar,enc:dEnc,servo:dServo};if(k==='all'){for(const x of['wifi','mpu','sonar','enc'])await m[x]()}else await m[k]()}finally{diagBusy=false;$$('[data-diag]').forEach(b=>b.disabled=false)}}
+async function moveTest(){if(!S.buf.length)return toast('Sem telemetria');const r=$('#moveRes');r.textContent='Movimente o kit…';r.className='t-warn';const t0=now();await wait(5000);
+  const b=S.buf.filter(x=>x.t>t0&&!x.inv);if(!b.length){r.textContent='Sem amostras';return}const m=mean(b.map(x=>x.am)),sd=Math.sqrt(mean(b.map(x=>(x.am-m)**2))),gmax=Math.max(...b.map(x=>x.gm));
+  const mv=sd>.05||gmax>30;r.textContent=`${mv?'Movimento detectado':'Nenhum movimento'} · σ|a| ${f(sd,3)} g · giro máx ${f(gmax,0)} °/s`;r.className=mv?'t-ok':'t-warn';log(mv?'ok':'warn','Teste de movimentação: '+r.textContent)}
+
+/* ---------- relatórios ---------- */
+const COLS=['data','modo','protocolo','qos','duracao_s','taxa_hz','enviadas','confirmadas','nao_confirmadas','atrasadas','duplicadas','perda_pct','rtt_min','rtt_med','rtt_max','p95','p99','jitter','msg_s','proc_med_ms','rede_med_ms','render_ms','reconexoes','reconexao_med_ms','quedas','rssi_med','falhas','interrompido'];
+function renderSessions(){
+  const tb=$('#sesTable');tb.innerHTML=S.sessions.length?S.sessions.map(r=>`<tr><td>${new Date(r.data).toLocaleString('pt-BR')}</td><td class="${r.modo==='REAL'?'t-info':'t-warn'}">${r.modo}</td><td>${r.protocolo}</td><td>${r.qos}</td><td>${r.duracao_s}s</td><td>${r.taxa_hz}</td><td>${r.enviadas}/${r.confirmadas}</td><td class="${r.perda_pct>1?'t-bad':''}">${r.perda_pct}%</td><td>${r.duplicadas}</td><td>${f(r.rtt_min,1)}</td><td>${f(r.rtt_med,1)}</td><td>${f(r.rtt_max,1)}</td><td>${f(r.p95,1)}</td><td>${f(r.p99,1)}</td><td>${f(r.jitter,2)}</td><td>${r.msg_s}</td><td>${r.reconexoes}</td><td class="${r.falhas?'t-bad':'t-mut'}">${esc(r.falhas||'—')}</td></tr>`).join(''):'<tr><td colspan="18" class="t-mut">Nenhuma sessão. Rode um teste na aba Latência.</td></tr>';
+  const m=S.sessions.find(r=>r.protocolo==='MQTT'),w=S.sessions.find(r=>r.protocolo==='WebSocket');
+  const met=[['RTT médio (ms)','rtt_med',-1],['RTT mín. (ms)','rtt_min',-1],['RTT máx. (ms)','rtt_max',-1],['P95 (ms)','p95',-1],['P99 (ms)','p99',-1],['Jitter (ms)','jitter',-1],['Perda (%)','perda_pct',-1],['Duplicadas','duplicadas',-1],['msg/s','msg_s',1],['Processamento ESP32 (ms)','proc_med_ms',-1],['Rede (ms)','rede_med_ms',-1],['Reconexão média (ms)','reconexao_med_ms',-1]];
+  $('#cmpTable').innerHTML=met.map(([l,k,dir])=>{const a=m?.[k],b=w?.[k];let best='—';if(Number.isFinite(a)&&Number.isFinite(b)&&a!==b)best=(dir<0?a<b:a>b)?'MQTT':'WebSocket';else if(Number.isFinite(a)&&a===b)best='empate';return`<tr><td style="font-family:inherit">${l}</td><td>${Number.isFinite(a)?a:'—'}</td><td>${Number.isFinite(b)?b:'—'}</td><td class="t-ok">${best}</td></tr>`}).join('');
+  let n='Usa o teste mais recente de cada protocolo.';if(m&&w){if(m.modo!==w.modo)n+=' ⚠ Os testes comparados têm modos diferentes (real × simulado).';if(m.taxa_hz!==w.taxa_hz||Math.abs(m.duracao_s-w.duracao_s)>2)n+=' ⚠ Taxa ou duração diferentes — repita com os mesmos parâmetros.';if(m.falhas||w.falhas)n+=' ⚠ Há teste com falha simulada ativa.'}$('#cmpNote').textContent=n;
+}
+function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
+const csvCell=v=>{v=v==null?'':String(v);return/[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+const stamp=()=>new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+
+/* ---------- eventos da interface ---------- */
+$$('.tabs button').forEach(b=>b.onclick=()=>{$$('.tabs button').forEach(x=>x.classList.toggle('on',x===b));$$('.tab').forEach(t=>t.classList.toggle('on',t.id==='tab-'+b.dataset.tab));charts.forEach(c=>c.dirty=true)});
+$('#cMode').value=cfg.mode;$('#cProto').value=cfg.proto;$('#cBase').value=cfg.base;$('#cDev').value=cfg.deviceId;$('#cUser').value=cfg.user;$('#cKa').value=cfg.keepalive;$('#srvMin').value=cfg.servoMin;$('#srvMax').value=cfg.servoMax;
+$('#cMode').onchange=e=>{cfg.mode=e.target.value;saveCfg();updConnUI()};
+$('#cProto').onchange=e=>{cfg.proto=e.target.value;saveCfg();updConnUI()};
+$('#cUrl').onchange=e=>{const v=e.target.value.trim();if(cfg.proto==='mqtt')cfg.mqttUrl=v;else cfg.wsUrl=v;saveCfg();updConnUI()};
+$('#cBase').onchange=e=>{cfg.base=e.target.value.trim().replace(/\/+$/,'')||DEF.base;e.target.value=cfg.base;saveCfg()};
+$('#cDev').onchange=e=>{cfg.deviceId=e.target.value.trim()||DEF.deviceId;e.target.value=cfg.deviceId;saveCfg()};
+$('#cUser').onchange=e=>{cfg.user=e.target.value;saveCfg()};$('#cPass').onchange=e=>{cfg.pass=e.target.value};
+$('#cKa').onchange=e=>{cfg.keepalive=clamp(+e.target.value||15,5,120);e.target.value=cfg.keepalive;saveCfg()};
+$('#btnConn').onclick=()=>{
+  if(conn){stopTest();conn.close();conn=null;updConnUI();return}
+  if(cfg.mode==='real'){const u=cfg.proto==='mqtt'?cfg.mqttUrl:cfg.wsUrl;if(!/^wss?:\/\//.test(u))return toast('A URL deve começar com ws:// ou wss://')}
+  S.telemSeq=null;S.lastTelem=0;S.lastStatus=0;S.status=null;S.telem=null;S.sensors=null;S.devices.clear();S.lastEnc=null;S.lastWifiDisc=null;S.brokerRtt=null;S.pubAckMs=null;
+  conn=cfg.mode==='sim'?new SimConn():cfg.proto==='mqtt'?new MqttConn():new WsConn();
+  log('info',`Conectando — ${cfg.mode==='sim'?'SIMULADOR':'ESP32 real'} via ${cfg.proto==='mqtt'?'MQTT':'WebSocket'}`);
+  updConnUI();conn.connect();
+};
+const rng=$('#srvRange');
+function setReq(v){v=clamp(+v,cfg.servoMin,cfg.servoMax);rng.value=v;$('#vReq').firstChild.textContent=v}
+rng.oninput=e=>setReq(e.target.value);
+$('#srvMin').onchange=$('#srvMax').onchange=()=>{let a=clamp(+$('#srvMin').value||0,0,180),b=clamp(+$('#srvMax').value||180,0,180);if(a>b)[a,b]=[b,a];cfg.servoMin=a;cfg.servoMax=b;$('#srvMin').value=a;$('#srvMax').value=b;saveCfg();setReq(rng.value);log('info',`Limites do servo: ${a}°–${b}°`)};
+$$('[data-ang]').forEach(b=>b.onclick=()=>setReq(b.dataset.ang==='min'?cfg.servoMin:b.dataset.ang==='max'?cfg.servoMax:90));
+$('#btnSrv').onclick=()=>sendServo(+rng.value);
+$('#btnSafe').onclick=()=>{if(!conn||S.link!=='ONLINE')return toast('Sem link');const seq=++S.servo.seq;S.servo.pending.set(seq,now());S.servo.state='ESTADO SEGURO solicitado';conn.send({type:'cmd',cmd:'safe',deviceId:cfg.deviceId,sequence:seq},{kind:'cmd',qos:1});log('warn','Estado seguro solicitado ao ESP32');setTimeout(()=>{if(S.servo.pending.delete(seq))S.servo.state='TIMEOUT — estado seguro sem ACK'},2000)};
+$('#btnEncZero').onclick=()=>{S.encOff=Number(S.sensors?.encoder)||0};
+$('#btnMove').onclick=moveTest;
+$('#btnTest').onclick=startTest;
+$$('[data-diag]').forEach(b=>b.onclick=()=>runDiag(b.dataset.diag));
+$('#btnClrRes').onclick=()=>$('#diagRes').innerHTML='<div>Nenhum teste executado.</div>';
+$('#fNet').onclick=()=>{if(!conn)return toast('Conecte primeiro');conn.kill()};
+$('#fBroker').onclick=()=>{if(!conn)return toast('Conecte primeiro');S.faults.blockUntil=now()+10000;log('warn','Falha simulada: servidor/broker indisponível por 10 s');cancelServoPending('falha simulada');conn.kill();setTimeout(()=>log('info','Fim da indisponibilidade simulada'),10000)};
+$('#fDelay').oninput=e=>{S.faults.delay=+e.target.value;$('#fDelayV').textContent=S.faults.delay+' ms'};$('#fDelay').onchange=()=>{log(S.faults.delay?'warn':'info',`Atraso artificial: ${S.faults.delay} ms`);if(S.faults.delay)cancelServoPending('falha simulada')};
+$('#fDrop').oninput=e=>{S.faults.drop=+e.target.value;$('#fDropV').textContent=S.faults.drop+' %'};$('#fDrop').onchange=()=>{log(S.faults.drop?'warn':'info',`Descarte simulado: ${S.faults.drop}%`);if(S.faults.drop)cancelServoPending('falha simulada')};
+$('#fSens').onchange=e=>{S.faults.sensorSim=e.target.checked;log(e.target.checked?'warn':'info',`Sensores simulados ${e.target.checked?'ATIVADOS':'desativados'}`)};
+$('#fClear').onclick=()=>{S.faults={delay:0,drop:0,sensorSim:false,blockUntil:0};$('#fDelay').value=0;$('#fDrop').value=0;$('#fSens').checked=false;$('#fDelayV').textContent='0 ms';$('#fDropV').textContent='0 %';log('ok','Todas as falhas simuladas foram removidas')};
+$('#logF').onchange=redrawLog;
+$('#btnLogClr').onclick=()=>{LOG.length=0;$('#log').innerHTML=''};
+$('#btnLogExp').onclick=()=>download(`iotlab-log-${stamp()}.csv`,'\ufeffdata_hora;nivel;mensagem\n'+LOG.map(e=>[e.t.toISOString(),e.lvl,e.msg].map(csvCell).join(';')).join('\n'),'text/csv');
+$('#btnCsv').onclick=()=>{if(!S.sessions.length)return toast('Nenhuma sessão');download(`iotlab-sessoes-${stamp()}.csv`,'\ufeff'+COLS.join(';')+'\n'+S.sessions.map(r=>COLS.map(c=>csvCell(r[c])).join(';')).join('\n'),'text/csv')};
+$('#btnJson').onclick=()=>{if(!S.sessions.length)return toast('Nenhuma sessão');download(`iotlab-relatorio-${stamp()}.json`,JSON.stringify({gerado:new Date().toISOString(),kit:cfg.deviceId,pinagem:{I2C_SCL:0,I2C_SDA:1,ULTRA_ECHO:3,ULTRA_TRIG:4,ENCODER_CLK:5,ENCODER_DT:6,ENCODER_SW:7,SERVO_PIN:10},wifi:S.status?.wifi||null,sessoes:S.sessions,eventos:LOG.slice(-500).map(e=>({t:e.t.toISOString(),nivel:e.lvl,msg:e.msg}))},null,2),'application/json')};
+$('#btnClrSes').onclick=()=>{if(confirm('Apagar todas as sessões salvas neste navegador?')){S.sessions=[];store.set('iotlab.sessions',[]);renderSessions()}};
+
+// marcações do encoder
+(()=>{let h='';for(let i=0;i<20;i++){const a=i*18*Math.PI/180,x1=60+Math.sin(a)*44,y1=60-Math.cos(a)*44,x2=60+Math.sin(a)*52,y2=60-Math.cos(a)*52;h+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#2a3846" stroke-width="2"/>`}$('#ticks').innerHTML=h})();
+
+updConnUI();setReq(90);renderSessions();
+setInterval(ui,250);setInterval(()=>{$('#recs').innerHTML=recs().map(r=>`<li>${r}</li>`).join('')},2000);
+requestAnimationFrame(frame);
+window.addEventListener('resize',()=>charts.forEach(c=>c.dirty=true));
+log('info','IoT Connectivity & Diagnostics Lab pronto. Use o modo Simulador para validar a interface ou ESP32 real para o kit.');
+</script>
+</body>
+</html>
