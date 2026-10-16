@@ -131,7 +131,7 @@ footer{color:var(--mut);font-size:11.5px;padding:24px 0;text-align:center}
 
 <div class="wrap">
   <section class="card conbar" aria-label="Conexão">
-    <label>Protocolo<select id="cProto"><option value="mqtt">MQTT (via WebSocket)</option><option value="ws">WebSocket (Node.js)</option></select></label>
+    <label>Protocolo<select id="cProto"><option value="direct">ESP32 direto (sem broker)</option><option value="mqtt">MQTT (Mosquitto)</option><option value="ws">WebSocket (servidor Node.js)</option></select></label>
     <label class="wide"><span id="urlLbl">URL do broker (listener WebSocket)</span><input id="cUrl" spellcheck="false"></label>
     <label id="baseWrap">Tópico base<input id="cBase" spellcheck="false"></label>
     <label>Device ID<input id="cDev" spellcheck="false"></label>
@@ -444,8 +444,14 @@ const fmtDur=ms=>{if(!Number.isFinite(ms))return'—';let s=Math.floor(ms/1000);
 const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 const enc=new TextEncoder(),dec=new TextDecoder();
 
-const DEF={proto:'mqtt',mqttUrl:'ws://192.168.0.10:9001',wsUrl:'ws://192.168.0.10:8080',base:'senai/iotlab',deviceId:'ESP32C3-KIT01',user:'',pass:'',keepalive:15,staleMs:3000,servoMin:10,servoMax:170};
+const DEF={proto:'direct',directUrl:'ws://192.168.4.1:81',mqttUrl:'ws://192.168.0.10:9001',wsUrl:'ws://192.168.0.10:8080',base:'senai/iotlab',deviceId:'ESP32C3-KIT01',user:'',pass:'',keepalive:15,staleMs:3000,servoMin:10,servoMax:170};
 const cfg=Object.assign({},DEF,store.get('iotlab.cfg',{}));
+// Página servida pelo próprio ESP32 → conecta direto nele
+const SERVED_BY_ESP=location.protocol==='http:'&&!!location.hostname;
+if(SERVED_BY_ESP){cfg.proto='direct';cfg.directUrl=`ws://${location.hostname}:81`}
+if(!['direct','mqtt','ws'].includes(cfg.proto))cfg.proto='direct';
+const curUrl=()=>cfg.proto==='mqtt'?cfg.mqttUrl:cfg.proto==='ws'?cfg.wsUrl:cfg.directUrl;
+const protoName=p=>p==='mqtt'?'MQTT':p==='ws'?'WebSocket':'WebSocket direto';
 const saveCfg=()=>store.set('iotlab.cfg',Object.assign({},cfg,{pass:''}));
 
 const S={link:'OFFLINE',linkSince:0,downAt:0,linkDrops:0,reconnects:[],brokerRtt:null,pubAckMs:null,
@@ -495,7 +501,7 @@ class WsConn extends BaseConn{
   open(){
     if(this.blocked())return;
     if(!ONL(S.link))setLink('RECONECTANDO','abrindo WebSocket');
-    let ws;try{ws=new WebSocket(cfg.wsUrl)}catch(e){setLink('ERRO',e.message);return this.scheduleReconnect()}
+    let ws;try{ws=new WebSocket(curUrl())}catch(e){setLink('ERRO',e.message);return this.scheduleReconnect()}
     this.ws=ws;const to=setTimeout(()=>{if(ws.readyState!==1){log('warn','Timeout ao abrir WebSocket (5 s)');ws.close()}},5000);
     ws.onopen=()=>{clearTimeout(to);this.tries=0;this.lastRx=now();this.send({type:'hello',role:'dashboard',deviceId:cfg.deviceId,user:cfg.user||undefined,token:cfg.pass||undefined});setLink('ONLINE','WebSocket aberto');this.hb=setInterval(()=>this.beat(),2000)};
     ws.onmessage=ev=>{this.lastRx=now();let o;try{o=JSON.parse(ev.data)}catch(e){return badPayload('JSON inválido')}onMessage(o)};
@@ -591,7 +597,11 @@ function route(o){
   S.rxCount++;S.lastRxT=now();
   if(o.type==='heartbeatAck'){if(o.t0)S.brokerRtt=now()-o.t0;return}
   const d=S.devices.get(o.deviceId)||{n:0,last:0};d.n++;d.last=now();if(!S.devices.has(o.deviceId))log('info',`Dispositivo identificado: ${o.deviceId}`);S.devices.set(o.deviceId,d);
-  if(o.deviceId!==cfg.deviceId)return;
+  if(o.deviceId!==cfg.deviceId){
+    // No modo direto só existe um kit na conexão: adota o deviceId que ele informar
+    if(cfg.proto==='direct'&&S.devices.size===1){log('info',`Device ID ajustado para ${o.deviceId}`);cfg.deviceId=o.deviceId;$('#cDev').value=o.deviceId;saveCfg()}
+    else return;
+  }
   switch(o.type){
     case'telemetry':onTelem(o);break;
     case'status':onStatus(o);break;
@@ -699,7 +709,7 @@ function finishTest(aborted){
   if(!T)return;clearInterval(T.timer);
   for(const s of T.pending.keys())T.lostSet.add(s);T.pending.clear();
   const el=Math.min(now(),T.endAt)-T.start,st=stats(T.rtts)||{};
-  const r={id:T.id,data:T.startWall.toISOString(),protocolo:T.proto==='mqtt'?'MQTT':'WebSocket',qos:T.qos??'',duracao_s:+(el/1000).toFixed(1),taxa_hz:T.rate,
+  const r={id:T.id,data:T.startWall.toISOString(),protocolo:protoName(T.proto),qos:T.qos??'',duracao_s:+(el/1000).toFixed(1),taxa_hz:T.rate,
     enviadas:T.sent,confirmadas:T.rtts.length,nao_confirmadas:T.lostSet.size-T.late,atrasadas:T.late,duplicadas:T.dup,perda_pct:T.sent?+((T.lostSet.size-T.late)/T.sent*100).toFixed(2):0,
     rtt_min:+f(st.min,2),rtt_med:+f(st.avg,2),rtt_max:+f(st.max,2),p95:+f(st.p95,2),p99:+f(st.p99,2),jitter:+f(st.jitter,2),msg_s:+(T.rtts.length/(el/1000)).toFixed(1),
     proc_med_ms:+f(mean(T.procs),3),rede_med_ms:+f(mean(T.nets),2),render_ms:+f(S.renderLat,1),reconexoes:T.reconn.length,reconexao_med_ms:+f(mean(T.reconn),0),quedas:T.drops,rssi_med:+f(mean(T.rssi),0),
@@ -776,19 +786,19 @@ function presence(){
 }
 function setText(id,v){const e=$(id);if(e&&e.textContent!==String(v))e.textContent=v}
 function updConnUI(){
-  const mq=cfg.proto==='mqtt';
-  $('#urlLbl').textContent=mq?'URL do broker (listener WebSocket)':'URL do servidor WebSocket';
-  $('#cUrl').value=mq?cfg.mqttUrl:cfg.wsUrl;$('#baseWrap').style.display=mq?'':'none';$('#kaWrap').style.display=mq?'':'none';$('#tQosWrap').style.display=mq?'':'none';
+  const mq=cfg.proto==='mqtt',dir=cfg.proto==='direct';
+  $('#urlLbl').textContent=mq?'URL do broker (listener WebSocket)':dir?'URL do ESP32 (ws://IP-do-ESP32:81)':'URL do servidor WebSocket';
+  $('#cUrl').value=curUrl();['#cUser','#cPass'].forEach(x=>$(x).closest('label').style.display=dir?'none':'');$('#baseWrap').style.display=mq?'':'none';$('#kaWrap').style.display=mq?'':'none';$('#tQosWrap').style.display=mq?'':'none';
   $('#passLbl').textContent=mq?'Senha':'Token';
   const busy=!!conn;['#cProto','#cUrl','#cBase','#cDev','#cUser','#cPass','#cKa'].forEach(s=>$(s).disabled=busy);
   $('#btnConn').textContent=busy?'Desconectar':'Conectar';$('#btnConn').className=busy?'dan':'pri';
-  const url=mq?cfg.mqttUrl:cfg.wsUrl;$('#httpsBanner').hidden=!(location.protocol==='https:'&&url.startsWith('ws://'));
+  const url=curUrl();$('#httpsBanner').hidden=!(location.protocol==='https:'&&url.startsWith('ws://'));
   pill('#pLink',S.link);
 }
 function ui(){
   const ds=devState(),ws=wifiState(),st=S.status||{},w=st.wifi||{},sn=S.sensors||{},dg=S.telem?.diag||{},t=now();
   pill('#pLink',S.link);pill('#pDev',ds);pill('#pWifi',ws);
-  setText('#pProto span',(cfg.proto==='mqtt'?'MQTT':'WebSocket'));
+  setText('#pProto span',protoName(cfg.proto));
   setText('#pUp span',Number.isFinite(st.uptimeMs)?fmtDur(st.uptimeMs):'—');
   const hz=S.telemTimes.length/2;
   // painel
@@ -797,7 +807,7 @@ function ui(){
   setText('#kWifi',ws);$('#kWifi').className='v t-'+cls(ws);
   setText('#kWifiSub',Number.isFinite(w.rssi)?`RSSI ${w.rssi} dBm · ${w.ssid||'—'}`:'RSSI —');
   $('#kRssiBar').style.width=Number.isFinite(w.rssi)?clamp((w.rssi+95)/65*100,0,100)+'%':'0';
-  setText('#kProto',cfg.proto==='mqtt'?'MQTT':'WebSocket');setText('#kProtoSub',cfg.proto==='mqtt'?cfg.mqttUrl:cfg.wsUrl);
+  setText('#kProto',protoName(cfg.proto));setText('#kProtoSub',curUrl());
   setText('#kUp',Number.isFinite(st.uptimeMs)?fmtDur(st.uptimeMs):'—');setText('#kUpSub','link do painel: '+(ONL(S.link)?fmtDur(t-S.linkSince):S.link));
   setText('#kHz',S.lastTelem?f(hz,0)+' Hz':'—');setText('#kHzSub',`seq ${S.telemSeq??'—'} · perdidas ${S.telemLost} · dup ${S.telemDup}`);
   setText('#kRtt',S.brokerRtt!=null?f(S.brokerRtt,1)+' ms':'—');
@@ -831,7 +841,7 @@ function ui(){
   setText('#wRssi',Number.isFinite(w.rssi)?`${w.rssi} dBm (${w.rssi>-60?'excelente':w.rssi>-70?'bom':w.rssi>-80?'fraco':'instável'})`:'—');setText('#wCh',w.channel??'—');
   setText('#wConn',Number.isFinite(w.connectMs)?w.connectMs+' ms':'—');setText('#wDisc',w.disconnects??'—');setText('#wRec',Number.isFinite(w.reconnectMs)&&w.reconnectMs?w.reconnectMs+' ms':'—');
   setText('#wHeap',Number.isFinite(st.freeHeap)?`${f(st.freeHeap/1024,1)} / ${f(st.minHeap/1024,1)} kB`:'—');setText('#wReset',st.resetReason||'—');setText('#wFw',st.fw||'—');
-  setText('#bState',S.link);$('#bState').className='t-'+cls(S.link);setText('#bUrl',cfg.proto==='mqtt'?cfg.mqttUrl:cfg.wsUrl);
+  setText('#bState',S.link);$('#bState').className='t-'+cls(S.link);setText('#bUrl',curUrl());
   setText('#bRtt',S.brokerRtt!=null?f(S.brokerRtt,1)+' ms':'—');setText('#bPuback',cfg.proto==='mqtt'&&S.pubAckMs!=null?f(S.pubAckMs,1)+' ms':'—');
   setText('#bRxTx',`${S.rxCount} / ${S.txCount}`);setText('#bBad',S.bad);setText('#bDrop',S.dropped);setText('#bRec',`${S.linkDrops} / ${S.reconnects.length}`);setText('#bRecAvg',S.reconnects.length?f(mean(S.reconnects.map(r=>r.ms)),0)+' ms':'—');
   const rows=[...S.devices].map(([id,d])=>`<tr><td>${esc(id)}</td><td>${d.n}</td><td>${f((t-d.last)/1000,1)} s</td><td>${id===cfg.deviceId?'<span class="t-ok">● alvo</span>':'—'}</td></tr>`).join('');
@@ -915,7 +925,7 @@ async function moveTest(){if(!S.buf.length)return toast('Sem telemetria');const 
 const COLS=['data','protocolo','qos','duracao_s','taxa_hz','enviadas','confirmadas','nao_confirmadas','atrasadas','duplicadas','perda_pct','rtt_min','rtt_med','rtt_max','p95','p99','jitter','msg_s','proc_med_ms','rede_med_ms','render_ms','reconexoes','reconexao_med_ms','quedas','rssi_med','falhas','interrompido'];
 function renderSessions(){
   const tb=$('#sesTable');tb.innerHTML=S.sessions.length?S.sessions.map(r=>`<tr><td>${new Date(r.data).toLocaleString('pt-BR')}</td><td>${r.protocolo}</td><td>${r.qos}</td><td>${r.duracao_s}s</td><td>${r.taxa_hz}</td><td>${r.enviadas}/${r.confirmadas}</td><td class="${r.perda_pct>1?'t-bad':''}">${r.perda_pct}%</td><td>${r.duplicadas}</td><td>${f(r.rtt_min,1)}</td><td>${f(r.rtt_med,1)}</td><td>${f(r.rtt_max,1)}</td><td>${f(r.p95,1)}</td><td>${f(r.p99,1)}</td><td>${f(r.jitter,2)}</td><td>${r.msg_s}</td><td>${r.reconexoes}</td><td class="${r.falhas?'t-bad':'t-mut'}">${esc(r.falhas||'—')}</td></tr>`).join(''):'<tr><td colspan="17" class="t-mut">Nenhuma sessão. Rode um teste na aba Latência.</td></tr>';
-  const m=S.sessions.find(r=>r.protocolo==='MQTT'),w=S.sessions.find(r=>r.protocolo==='WebSocket');
+  const m=S.sessions.find(r=>r.protocolo==='MQTT'),w=S.sessions.find(r=>String(r.protocolo).startsWith('WebSocket'));
   const met=[['RTT médio (ms)','rtt_med',-1],['RTT mín. (ms)','rtt_min',-1],['RTT máx. (ms)','rtt_max',-1],['P95 (ms)','p95',-1],['P99 (ms)','p99',-1],['Jitter (ms)','jitter',-1],['Perda (%)','perda_pct',-1],['Duplicadas','duplicadas',-1],['msg/s','msg_s',1],['Processamento ESP32 (ms)','proc_med_ms',-1],['Rede (ms)','rede_med_ms',-1],['Reconexão média (ms)','reconexao_med_ms',-1]];
   $('#cmpTable').innerHTML=met.map(([l,k,dir])=>{const a=m?.[k],b=w?.[k];let best='—';if(Number.isFinite(a)&&Number.isFinite(b)&&a!==b)best=(dir<0?a<b:a>b)?'MQTT':'WebSocket';else if(Number.isFinite(a)&&a===b)best='empate';return`<tr><td style="font-family:inherit">${l}</td><td>${Number.isFinite(a)?a:'—'}</td><td>${Number.isFinite(b)?b:'—'}</td><td class="t-ok">${best}</td></tr>`}).join('');
   let n='Usa o teste mais recente de cada protocolo.';if(m&&w){if(m.taxa_hz!==w.taxa_hz||Math.abs(m.duracao_s-w.duracao_s)>2)n+=' ⚠ Taxa ou duração diferentes — repita com os mesmos parâmetros.';if(m.falhas||w.falhas)n+=' ⚠ Há teste com falha simulada ativa.'}$('#cmpNote').textContent=n;
@@ -928,17 +938,17 @@ const stamp=()=>new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
 $$('.tabs button').forEach(b=>b.onclick=()=>{$$('.tabs button').forEach(x=>x.classList.toggle('on',x===b));$$('.tab').forEach(t=>t.classList.toggle('on',t.id==='tab-'+b.dataset.tab));charts.forEach(c=>c.dirty=true)});
 $('#cProto').value=cfg.proto;$('#cBase').value=cfg.base;$('#cDev').value=cfg.deviceId;$('#cUser').value=cfg.user;$('#cKa').value=cfg.keepalive;$('#srvMin').value=cfg.servoMin;$('#srvMax').value=cfg.servoMax;
 $('#cProto').onchange=e=>{cfg.proto=e.target.value;saveCfg();updConnUI()};
-$('#cUrl').onchange=e=>{const v=e.target.value.trim();if(cfg.proto==='mqtt')cfg.mqttUrl=v;else cfg.wsUrl=v;saveCfg();updConnUI()};
+$('#cUrl').onchange=e=>{const v=e.target.value.trim();if(cfg.proto==='mqtt')cfg.mqttUrl=v;else if(cfg.proto==='ws')cfg.wsUrl=v;else cfg.directUrl=v;saveCfg();updConnUI()};
 $('#cBase').onchange=e=>{cfg.base=e.target.value.trim().replace(/\/+$/,'')||DEF.base;e.target.value=cfg.base;saveCfg()};
 $('#cDev').onchange=e=>{cfg.deviceId=e.target.value.trim()||DEF.deviceId;e.target.value=cfg.deviceId;saveCfg()};
 $('#cUser').onchange=e=>{cfg.user=e.target.value;saveCfg()};$('#cPass').onchange=e=>{cfg.pass=e.target.value};
 $('#cKa').onchange=e=>{cfg.keepalive=clamp(+e.target.value||15,5,120);e.target.value=cfg.keepalive;saveCfg()};
 $('#btnConn').onclick=()=>{
   if(conn){stopTest();conn.close();conn=null;updConnUI();return}
-  {const u=cfg.proto==='mqtt'?cfg.mqttUrl:cfg.wsUrl;if(!/^wss?:\/\//.test(u))return toast('A URL deve começar com ws:// ou wss://')}
+  {const u=curUrl();if(!/^wss?:\/\//.test(u))return toast('A URL deve começar com ws:// ou wss://')}
   S.telemSeq=null;S.lastTelem=0;S.lastStatus=0;S.status=null;S.telem=null;S.sensors=null;S.devices.clear();S.lastEnc=null;S.lastWifiDisc=null;S.brokerRtt=null;S.pubAckMs=null;
   conn=cfg.proto==='mqtt'?new MqttConn():new WsConn();
-  log('info',`Conectando via ${cfg.proto==='mqtt'?'MQTT':'WebSocket'} — ${cfg.proto==='mqtt'?cfg.mqttUrl:cfg.wsUrl}`);
+  log('info',`Conectando via ${protoName(cfg.proto)} — ${curUrl()}`);
   updConnUI();conn.connect();
 };
 const rng=$('#srvRange');
@@ -969,10 +979,11 @@ $('#btnClrSes').onclick=()=>{if(confirm('Apagar todas as sessões salvas neste n
 (()=>{let h='';for(let i=0;i<20;i++){const a=i*18*Math.PI/180,x1=60+Math.sin(a)*44,y1=60-Math.cos(a)*44,x2=60+Math.sin(a)*52,y2=60-Math.cos(a)*52;h+=`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#2a3846" stroke-width="2"/>`}$('#ticks').innerHTML=h})();
 
 updConnUI();setReq(90);renderSessions();
+if(SERVED_BY_ESP)setTimeout(()=>{if(!conn)$('#btnConn').click()},300);
 setInterval(ui,250);setInterval(()=>{$('#recs').innerHTML=recs().map(r=>`<li>${r}</li>`).join('')},2000);
 requestAnimationFrame(frame);
 window.addEventListener('resize',()=>charts.forEach(c=>c.dirty=true));
-log('info','IoT Connectivity & Diagnostics Lab pronto. Informe o IP do broker/servidor e clique em Conectar.');
+log('info',SERVED_BY_ESP?`Dashboard servido pelo ESP32 (${location.hostname}) — conectando direto.`:'Pronto. No modo ESP32 direto, informe ws://IP-do-ESP32:81 e clique em Conectar.');
 </script>
 </body>
 </html>

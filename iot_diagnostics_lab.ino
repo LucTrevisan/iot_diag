@@ -7,13 +7,15 @@
   Compatível com o dashboard "iot-diagnostics-lab.html" (mesmo contrato JSON).
 
   PLACA / IDE
-  - Arduino IDE 2.x ou Arduino Cloud · núcleo "esp32" da Espressif 2.0.x ou 3.x
+  - Arduino IDE 2.x · núcleo "esp32" da Espressif 2.0.x ou 3.x (testado em 2.0.17 e 3.0.7)
   - Placa: "ESP32C3 Dev Module"
   - Tools → USB CDC On Boot: Enabled   (para o Serial funcionar pela USB nativa)
+  - Tools → Partition Scheme: "Huge APP (3MB No OTA/1MB SPIFFS)"
+    (o dashboard embutido não cabe com folga na partição padrão de 1,2 MB)
 
   BIBLIOTECAS (Gerenciador de Bibliotecas)
   - PubSubClient ............ Nick O'Leary   (MQTT)
-  - WebSockets .............. Markus Sattler (WebSocketsClient)
+  - WebSockets .............. Markus Sattler (WebSocketsServer/Client)
   - ArduinoJson ............. Benoit Blanchon, versão 7.x
   O servo é acionado direto pelo periférico LEDC (sem biblioteca de servo),
   com código compatível com os núcleos 2.x e 3.x. Se houver ESP32Servo ou
@@ -21,14 +23,21 @@
   O MPU6050 é lido direto pelos registradores (sem biblioteca) para permitir
   detectar 0x68/0x69, erros de I2C e valores inválidos.
 
-  PROTOCOLO
-  Apenas UM protocolo fica ativo por vez (testes separados, sem interferência).
-  Troque pelo monitor serial (115200):   proto mqtt   ou   proto ws   → reboot
+  MODO PADRÃO: ESP32 DIRETO (sem broker, sem PC servidor)
+  O próprio ESP32 hospeda o dashboard e envia a telemetria por WebSocket:
+    - na rede da escola ....... http://<IP do ESP32>/        (aparece no serial)
+    - na rede própria do kit .. Wi-Fi "IOTLAB-<id>", senha "senai1234",
+                                depois abra http://192.168.4.1/
+  O arquivo dashboard_html.h (mesma pasta do .ino) contém o dashboard.
+
+  OUTROS PROTOCOLOS (testes separados, apenas UM ativo por vez)
+    proto direct  |  proto mqtt  |  proto ws     → depois: reboot
 
   CONFIGURAÇÃO PELO MONITOR SERIAL (salva na flash, sobrevive a reboot)
     ssid <nome>     pass <senha>     host <ip do PC>
     mqttport <n>    wsport <n>       user <usuario>   mqttpass <senha>
     token <token>   base <topico>    id <deviceId>    proto mqtt|ws
+    ap on|off       appass <senha>   (rede própria do kit, padrão ligada)
     sensores        show             reboot           help
 
   CONTRATO MQTT
@@ -55,6 +64,10 @@
 #include <Preferences.h>
 #include <PubSubClient.h>
 #include <WebSocketsClient.h>
+#include <WebSocketsServer.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
+#include "dashboard_html.h"
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h>
 #include <esp_system.h>
@@ -87,9 +100,13 @@
 #define CFG_WS_TOKEN      ""
 #define CFG_BASE_TOPIC    "senai/iotlab"
 #define CFG_DEVICE_ID     "ESP32C3-KIT01"
-#define CFG_PROTOCOL      "mqtt"             // "mqtt" ou "ws"
+#define CFG_PROTOCOL      "direct"           // "direct" (sem broker), "mqtt" ou "ws"
+#define CFG_AP_ENABLED    "on"               // rede própria do kit: "on" / "off"
+#define CFG_AP_PASS       "senai1234"        // mínimo 8 caracteres
+#define HTTP_PORT         80
+#define WS_SERVER_PORT    81
 
-#define FW_VERSION        "1.0.0"
+#define FW_VERSION        "1.2.0"
 
 // ============================ PARÂMETROS ===================================
 #define TELEMETRY_PERIOD_MS        40      // 25 Hz
@@ -119,12 +136,13 @@
 #define HEAP_WARN_BYTES            30000
 #define HEAP_CRITICAL_BYTES        12000
 #define WIFI_CONNECT_WINDOW_MS     8000
-#define WIFI_TX_POWER_REDUZIDA     1       // 1 = 8,5 dBm: corrige falhas de conexão comuns
-                                           // em placas ESP32-C3 "SuperMini" (antena ruim)
+#define WIFI_TX_POWER_REDUZIDA     0       // 0 = potência máxima (melhor com RSSI fraco, < -70 dBm)
+                                           // 1 = 8,5 dBm: use só se a placa "SuperMini" não conseguir
+                                           //     conectar de jeito nenhum (defeito comum de antena)
 
 // ============================ ESTADO GLOBAL ================================
 struct Config {
-  String ssid, pass, host, mqttUser, mqttPass, wsToken, base, deviceId, proto;
+  String ssid, pass, host, mqttUser, mqttPass, wsToken, base, deviceId, proto, apMode, apPass;
   uint16_t mqttPort, wsPort;
 } cfg;
 
@@ -132,8 +150,13 @@ Preferences prefs;
 WiFiClient netClient;
 PubSubClient mqtt(netClient);
 WebSocketsClient ws;
+WebServer http(HTTP_PORT);
+WebSocketsServer wsServer(WS_SERVER_PORT);
 
-bool useMqtt = true;
+bool useMqtt = false, useDirect = true;
+bool apOn = true, mdnsOn = false;
+String apSsid;
+int16_t replyClient = -1;                // cliente WebSocket que enviou a mensagem atual
 
 char topicTelemetry[112], topicStatus[112], topicAck[112], topicEvent[112], topicDown[112];
 
@@ -197,6 +220,8 @@ void logEvent(const char* lvl, const char* fmt, ...);
 bool linkUp();
 int32_t encoderDetents();
 const char* sonarState();
+void printAccessInfo();
+void sendStatus();
 bool sendUp(const char* topic, JsonDocument& doc);
 void handleIncoming(const uint8_t* p, size_t n, uint32_t t0us);
 
@@ -223,6 +248,19 @@ const char* resetReasonStr() {
 }
 
 // ============================ CONFIGURAÇÃO (FLASH) =========================
+// Remove espaços, tabs, CR/LF e espaço não separável (UTF-8 C2 A0) das pontas.
+// Evita o erro clássico de SSID salvo como "REDE  " (rede não encontrada).
+String cleanStr(String v) {
+  bool changed = true;
+  while (changed && v.length()) {
+    changed = false;
+    v.trim();
+    if (v.length() >= 2 && (uint8_t)v[v.length() - 2] == 0xC2 && (uint8_t)v[v.length() - 1] == 0xA0) { v.remove(v.length() - 2); changed = true; }
+    if (v.length() >= 2 && (uint8_t)v[0] == 0xC2 && (uint8_t)v[1] == 0xA0) { v.remove(0, 2); changed = true; }
+  }
+  return v;
+}
+
 void loadConfig() {
   prefs.begin("iotlab", true);
   cfg.ssid     = prefs.getString("ssid", CFG_WIFI_SSID);
@@ -234,21 +272,26 @@ void loadConfig() {
   cfg.base     = prefs.getString("base", CFG_BASE_TOPIC);
   cfg.deviceId = prefs.getString("id", CFG_DEVICE_ID);
   cfg.proto    = prefs.getString("proto", CFG_PROTOCOL);
+  cfg.apMode   = prefs.getString("ap", CFG_AP_ENABLED);
+  cfg.apPass   = prefs.getString("appass", CFG_AP_PASS);
   cfg.mqttPort = prefs.getUShort("mqttport", CFG_MQTT_PORT);
   cfg.wsPort   = prefs.getUShort("wsport", CFG_WS_PORT);
   prefs.end();
+  String* all[] = { &cfg.ssid, &cfg.pass, &cfg.host, &cfg.mqttUser, &cfg.mqttPass, &cfg.wsToken, &cfg.base, &cfg.deviceId, &cfg.proto, &cfg.apMode, &cfg.apPass };
+  for (String* x : all) *x = cleanStr(*x);
 }
 
 void printConfig() {
   Serial.println(F("---- Configuração atual ----"));
   Serial.printf("  deviceId : %s\n", cfg.deviceId.c_str());
   Serial.printf("  protocolo: %s\n", cfg.proto.c_str());
-  Serial.printf("  ssid     : %s\n", cfg.ssid.c_str());
+  Serial.printf("  ssid     : '%s' (%u caracteres)\n", cfg.ssid.c_str(), cfg.ssid.length());
   Serial.printf("  pass     : %s\n", cfg.pass.length() ? "********" : "(vazia)");
   Serial.printf("  host     : %s  (MQTT %u · WS %u)\n", cfg.host.c_str(), cfg.mqttPort, cfg.wsPort);
   Serial.printf("  usuário  : %s  senha MQTT: %s  token WS: %s\n", cfg.mqttUser.c_str(),
                 cfg.mqttPass.length() ? "****" : "(vazia)", cfg.wsToken.length() ? "****" : "(vazio)");
   Serial.printf("  base     : %s\n", cfg.base.c_str());
+  Serial.printf("  rede kit : %s  (senha %s)\n", cfg.apMode.c_str(), cfg.apPass.c_str());
   Serial.println(F("  Pinos    : SDA=1 SCL=0 · TRIG=4 ECHO=3 · CLK=5 DT=6 SW=7 · SERVO=10"));
 }
 
@@ -258,7 +301,7 @@ void runSerialCommand(String line) {
   String key = (sp < 0 ? line : line.substring(0, sp));
   String val = (sp < 0 ? String("") : line.substring(sp + 1));
   key.toLowerCase();
-  val.trim();
+  val = cleanStr(val);
 
   if (key == "help") {
     Serial.println(F("Comandos: sensores show reboot · ssid pass host mqttport wsport user mqttpass token base id proto"));
@@ -268,10 +311,12 @@ void runSerialCommand(String line) {
   if (key == "sensores") { printSensorReport(); return; }
   if (key == "reboot") { Serial.println(F("Reiniciando...")); delay(200); ESP.restart(); }
 
-  const char* strKeys[] = { "ssid", "pass", "host", "user", "mqttpass", "token", "base", "id", "proto" };
+  const char* strKeys[] = { "ssid", "pass", "host", "user", "mqttpass", "token", "base", "id", "proto", "ap", "appass" };
   for (const char* k : strKeys) {
     if (key == k) {
-      if (key == "proto" && val != "mqtt" && val != "ws") { Serial.println(F("Use: proto mqtt  ou  proto ws")); return; }
+      if (key == "proto" && val != "mqtt" && val != "ws" && val != "direct") { Serial.println(F("Use: proto direct | proto mqtt | proto ws")); return; }
+      if (key == "ap" && val != "on" && val != "off") { Serial.println(F("Use: ap on  ou  ap off")); return; }
+      if (key == "appass" && val.length() < 8) { Serial.println(F("A senha da rede do kit precisa de 8+ caracteres")); return; }
       if ((key == "id" || key == "base") && (val.length() == 0 || val.length() > 48 || val.indexOf('#') >= 0 || val.indexOf('+') >= 0)) {
         Serial.println(F("Valor inválido (1–48 caracteres, sem # ou +)")); return;
       }
@@ -334,8 +379,9 @@ void printSensorReport() {
   Serial.printf("SG90     (PWM 10)        : %-14s sem realimentação — confirme visualmente\n",
                 servoAttached ? "PWM_ATIVO" : "PWM_DESLIGADO");
   Serial.printf("Wi-Fi: %s · link %s\n", wifiUp ? WiFi.localIP().toString().c_str() : "desconectado",
-                linkUp() ? (useMqtt ? "MQTT ok" : "WebSocket ok") : "offline");
+                linkUp() ? (useDirect ? "painel conectado" : useMqtt ? "MQTT ok" : "WebSocket ok") : (useDirect ? "aguardando painel no navegador" : "offline"));
   Serial.println(F("==========================================="));
+  printAccessInfo();
 }
 
 // ============================ WATCHDOG =====================================
@@ -488,8 +534,8 @@ void IRAM_ATTR encIsr() {
   portENTER_CRITICAL_ISR(&encMux);
   uint8_t idx = (uint8_t)((encState << 2) | s);
   int8_t d = ENC_TABLE[idx];
-  if (d == 0 && s != encState) encInvalid++;   // os dois canais mudaram ao mesmo tempo
-  encRaw += d;
+  if (d == 0 && s != encState) encInvalid = encInvalid + 1;   // os dois canais mudaram ao mesmo tempo
+  encRaw = encRaw + d;
   encState = s;
   portEXIT_CRITICAL_ISR(&encMux);
 }
@@ -633,10 +679,18 @@ void handleIncoming(const uint8_t* p, size_t n, uint32_t t0us) {
   if (deserializeJson(in, p, n)) { badPayloads++; return; }   // copia o payload: é seguro publicar depois
 
   const char* type = in["type"] | "";
-  if (strcmp(type, "heartbeat") == 0 || strcmp(type, "heartbeatAck") == 0 || strcmp(type, "hello") == 0) return;
+  if (strcmp(type, "heartbeat") == 0) {
+    if (useDirect && replyClient >= 0) {          // no modo direto o ESP32 é o servidor: responde
+      char hb[64];
+      int n = snprintf(hb, sizeof(hb), "{\"type\":\"heartbeatAck\",\"t0\":%.3f}", in["t0"] | 0.0);
+      wsServer.sendTXT((uint8_t)replyClient, hb, n);
+    }
+    return;
+  }
+  if (strcmp(type, "heartbeatAck") == 0 || strcmp(type, "hello") == 0) return;
 
   const char* dev = in["deviceId"] | "";
-  if (strcmp(dev, cfg.deviceId.c_str()) != 0) return;   // mensagem para outro kit
+  if (!useDirect && strcmp(dev, cfg.deviceId.c_str()) != 0) return;   // mensagem para outro kit
 
   if (strcmp(type, "ping") == 0) {
     if (!in["sequence"].is<uint32_t>()) { badPayloads++; return; }
@@ -659,6 +713,7 @@ void handleIncoming(const uint8_t* p, size_t n, uint32_t t0us) {
 
 // ============================ ENVIO ========================================
 bool linkUp() {
+  if (useDirect) return wsServer.connectedClients() > 0;   // há painel conectado
   if (WiFi.status() != WL_CONNECTED) return false;
   return useMqtt ? mqtt.connected() : wsConnected;
 }
@@ -668,6 +723,7 @@ bool sendUp(const char* topic, JsonDocument& doc) {
   static char buf[800];
   size_t n = serializeJson(doc, buf, sizeof(buf));
   if (n == 0 || n >= sizeof(buf) - 1) return false;
+  if (useDirect) return wsServer.broadcastTXT(buf, n);
   if (useMqtt) return mqtt.publish(topic, (const uint8_t*)buf, n, false);   // PubSubClient publica em QoS 0
   return ws.sendTXT(buf, n);
 }
@@ -740,7 +796,11 @@ void sendStatus() {
   w["lastReason"] = wifiLastReason;
 
   JsonObject l = d["link"].to<JsonObject>();
-  l["proto"] = useMqtt ? "mqtt" : "ws";
+  l["proto"] = useDirect ? "direct" : useMqtt ? "mqtt" : "ws";
+  l["clients"] = useDirect ? wsServer.connectedClients() : 0;
+  w["apSsid"] = apOn ? apSsid : String("");
+  w["apIp"] = apOn ? WiFi.softAPIP().toString() : String("");
+  w["apClients"] = apOn ? WiFi.softAPgetStationNum() : 0;
   l["reconnects"] = linkReconnects;
   l["lastReconnectMs"] = linkLastReconnectMs;
   l["pingsAnswered"] = pingsAnswered;
@@ -751,8 +811,35 @@ void sendStatus() {
 }
 
 // ============================ WI-FI ========================================
+const char* wifiReasonStr(uint8_t r) {
+  switch (r) {
+    case 2:   return "autenticação expirou";
+    case 4:   return "associação expirou (sinal fraco?)";
+    case 8:   return "estação saiu da rede";
+    case 15:  return "senha incorreta / handshake expirou";
+    case 200: return "beacon timeout (sinal fraco ou AP distante)";
+    case 201: return "rede não encontrada (SSID errado ou fora de alcance)";
+    case 202: return "falha de autenticação (senha?)";
+    case 203: return "falha de associação";
+    case 204: return "handshake expirou (senha?)";
+    default:  return "outro";
+  }
+}
+
+// Avisa quando o broker/servidor configurado está fora da faixa de IP desta rede
+void checkHostSubnet() {
+  IPAddress h;
+  if (!h.fromString(cfg.host)) return;   // nome de host: não dá para comparar
+  IPAddress ip = WiFi.localIP(), m = WiFi.subnetMask();
+  bool same = true;
+  for (int i = 0; i < 4; i++) if ((ip[i] & m[i]) != (h[i] & m[i])) same = false;
+  if (!same)
+    logEvent("err", "host %s está FORA da rede do ESP32 (%s / %s). Digite no serial: host <IP do PC> e reboot",
+             cfg.host.c_str(), ip.toString().c_str(), m.toString().c_str());
+}
+
 void wifiStart() {
-  WiFi.disconnect(true);
+  WiFi.disconnect(false);                 // só a estação: a rede do kit (AP) continua no ar
   WiFi.begin(cfg.ssid.c_str(), cfg.pass.c_str());
 #if WIFI_TX_POWER_REDUZIDA
   WiFi.setTxPower(WIFI_POWER_8_5dBm);
@@ -760,21 +847,32 @@ void wifiStart() {
 }
 
 void wifiTask() {
+  if (cfg.ssid.length() == 0) return;     // sem SSID: só a rede própria do kit
   bool up = WiFi.status() == WL_CONNECTED;
   if (up && !wifiUp) {
     wifiUp = true;
     if (!wifiEverConnected) { wifiConnectMs = millis() - wifiBeginAt; wifiEverConnected = true; }
     else wifiLastReconnectMs = millis() - wifiLostAt;
     wifiBackoff = WIFI_CONNECT_WINDOW_MS;
+    wifiLastReason = 0;
     logEvent("ok", "Wi-Fi conectado: %s · IP %s · RSSI %d dBm · %lu ms",
              WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), WiFi.RSSI(),
              (unsigned long)(wifiDisconnects ? wifiLastReconnectMs : wifiConnectMs));
+    if (WiFi.RSSI() < -72) logEvent("warn", "Sinal Wi-Fi fraco (%d dBm): aproxime o kit do roteador", WiFi.RSSI());
+    if (!useDirect) checkHostSubnet();
+    if (useDirect && !mdnsOn) {
+      String h = cfg.deviceId; h.toLowerCase();
+      mdnsOn = MDNS.begin(h.c_str());
+      if (mdnsOn) MDNS.addService("http", "tcp", HTTP_PORT);
+    }
+    printAccessInfo();
   } else if (!up && wifiUp) {
     wifiUp = false;
     wifiDisconnects++;
     wifiLostAt = millis();
     wifiRetryAt = millis() + 500;
-    logEvent("warn", "Wi-Fi desconectado (motivo %u) — reconectando", wifiLastReason);
+    delay(5);   // dá tempo ao evento de desconexão registrar o motivo
+    logEvent("warn", "Wi-Fi desconectado (motivo %u: %s) — reconectando", wifiLastReason, wifiReasonStr(wifiLastReason));
   } else if (!up && millis() >= wifiRetryAt) {
     Serial.printf("[wifi] tentando conectar em '%s' (próxima janela %lu ms)\n", cfg.ssid.c_str(), (unsigned long)wifiBackoff);
     wifiStart();
@@ -853,6 +951,56 @@ void wsEvent(WStype_t type, uint8_t* payload, size_t len) {
   }
 }
 
+// ============================ MODO DIRETO (ESP32 = SERVIDOR) ===============
+void wsServerEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t len) {
+  uint32_t t0 = micros();
+  switch (type) {
+    case WStype_CONNECTED: {
+      IPAddress ip = wsServer.remoteIP(num);
+      logEvent("ok", "Painel conectado (#%u, %s) · %d cliente(s)", num, ip.toString().c_str(), wsServer.connectedClients());
+      sendStatus();
+      break;
+    }
+    case WStype_DISCONNECTED:
+      Serial.printf("[ws] painel #%u desconectou · %d cliente(s)\n", num, wsServer.connectedClients());
+      break;
+    case WStype_TEXT:
+      replyClient = num;
+      handleIncoming(payload, len, t0);
+      replyClient = -1;
+      break;
+    default:
+      break;
+  }
+}
+
+void httpRoot() {
+  http.sendHeader("Content-Encoding", "gzip");
+  http.sendHeader("Cache-Control", "no-cache");
+  http.send_P(200, "text/html; charset=utf-8", (const char*)DASHBOARD_HTML_GZ, DASHBOARD_HTML_GZ_LEN);
+}
+
+void httpSensores() {          // diagnóstico rápido em texto: http://<ip>/sensores
+  String t;
+  t += "MPU6050 : "; t += mpuState; t += "\n";
+  t += "HC-SR04 : "; t += sonarState(); if (distValid) { t += "  "; t += String(distanceCm, 1); t += " cm"; } t += "\n";
+  t += "KY-040  : "; t += encDetected ? "DETECTADO" : "NAO_DETECTADO"; t += "  contagem "; t += encoderDetents(); t += "\n";
+  t += "Botao SW: "; t += btnPresses ? "CONFIRMADO" : "NAO_CONFIRMADO (pressione)"; t += "\n";
+  t += "SG90    : "; t += servoAttached ? "PWM_ATIVO" : "PWM_DESLIGADO"; t += " (sem realimentacao)\n";
+  http.send(200, "text/plain; charset=utf-8", t);
+}
+
+void printAccessInfo() {
+  if (!useDirect) return;
+  Serial.println(F("------------- ACESSO AO DASHBOARD -------------"));
+  if (wifiUp) Serial.printf("  Rede da escola : http://%s/\n", WiFi.localIP().toString().c_str());
+  if (mdnsOn) { String h = cfg.deviceId; h.toLowerCase(); Serial.printf("                   http://%s.local/\n", h.c_str()); }
+  if (apOn)   Serial.printf("  Rede do kit    : Wi-Fi '%s' senha '%s' → http://%s/\n",
+                            apSsid.c_str(), cfg.apPass.c_str(), WiFi.softAPIP().toString().c_str());
+  Serial.println(F("  Teste rápido   : /sensores  (texto simples)"));
+  Serial.println(F("-----------------------------------------------"));
+}
+
 // ============================ ESTADO DO LINK ===============================
 void linkTrack() {
   bool up = linkUp();
@@ -860,7 +1008,7 @@ void linkTrack() {
     if (linkDownAt) {
       linkLastReconnectMs = millis() - linkDownAt;
       linkReconnects++;
-      logEvent("ok", "Link %s restabelecido em %lu ms", useMqtt ? "MQTT" : "WebSocket", (unsigned long)linkLastReconnectMs);
+      if (!useDirect) logEvent("ok", "Link %s restabelecido em %lu ms", useMqtt ? "MQTT" : "WebSocket", (unsigned long)linkLastReconnectMs);
     }
     linkDownAt = 0;
   } else if (!up && linkWasUp) {
@@ -886,7 +1034,9 @@ void setup() {
   delay(400);
   Serial.println(F("\n=== IoT Connectivity & Diagnostics Lab — ESP32-C3 · fw " FW_VERSION " ==="));
   loadConfig();
-  useMqtt = (cfg.proto != "ws");
+  useDirect = (cfg.proto == "direct");
+  useMqtt   = (cfg.proto == "mqtt");
+  apOn      = (cfg.apMode != "off");
   buildTopics();
   printConfig();
   Serial.printf("Motivo do reset: %s\n", resetReasonStr());
@@ -918,16 +1068,31 @@ void setup() {
   WiFi.onEvent([](WiFiEvent_t e, WiFiEventInfo_t info) {
     if (e == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) wifiLastReason = info.wifi_sta_disconnected.reason;
   });
-  WiFi.mode(WIFI_STA);
+  WiFi.mode(apOn ? WIFI_AP_STA : WIFI_STA);
   WiFi.setSleep(false);                       // menor latência
   WiFi.setAutoReconnect(false);               // reconexão controlada pelo firmware (backoff)
   String host = cfg.deviceId; host.toLowerCase();
   WiFi.setHostname(host.c_str());
+  if (apOn) {
+    String suf = cfg.deviceId; suf.replace("ESP32C3-", "");
+    apSsid = "IOTLAB-" + suf;
+    if (WiFi.softAP(apSsid.c_str(), cfg.apPass.c_str()))
+      logEvent("ok", "Rede do kit no ar: '%s' · %s", apSsid.c_str(), WiFi.softAPIP().toString().c_str());
+    else { apOn = false; logEvent("err", "Falha ao criar a rede do kit"); }
+  }
   wifiBeginAt = millis();
-  wifiStart();
-  wifiRetryAt = millis() + WIFI_CONNECT_WINDOW_MS;
+  if (cfg.ssid.length()) { wifiStart(); wifiRetryAt = millis() + WIFI_CONNECT_WINDOW_MS; }
 
-  if (useMqtt) {
+  if (useDirect) {
+    http.on("/", httpRoot);
+    http.on("/index.html", httpRoot);
+    http.on("/sensores", httpSensores);
+    http.onNotFound([]() { http.sendHeader("Location", "/"); http.send(302, "text/plain", ""); });
+    http.begin();
+    wsServer.begin();
+    wsServer.onEvent(wsServerEvent);
+    wsServer.enableHeartbeat(5000, 3000, 2);
+  } else if (useMqtt) {
     mqtt.setServer(cfg.host.c_str(), cfg.mqttPort);
     mqtt.setCallback(mqttCallback);
     mqtt.setBufferSize(MQTT_BUFFER);
@@ -943,7 +1108,8 @@ void setup() {
   }
 
   wdtInit();
-  logEvent("info", "Firmware iniciado · protocolo %s · deviceId %s", useMqtt ? "MQTT" : "WebSocket", cfg.deviceId.c_str());
+  logEvent("info", "Firmware iniciado · modo %s · deviceId %s", useDirect ? "ESP32 DIRETO (sem broker)" : useMqtt ? "MQTT" : "WebSocket", cfg.deviceId.c_str());
+  printAccessInfo();
 }
 
 void loop() {
@@ -952,7 +1118,8 @@ void loop() {
 
   serialTask();
   wifiTask();
-  if (useMqtt) mqttTask();
+  if (useDirect) { http.handleClient(); wsServer.loop(); }
+  else if (useMqtt) mqttTask();
   else if (wifiUp) { esp_task_wdt_reset(); ws.loop(); }
   linkTrack();
 
