@@ -7,7 +7,7 @@
   Compatível com o dashboard "iot-diagnostics-lab.html" (mesmo contrato JSON).
 
   PLACA / IDE
-  - Arduino IDE 2.x + núcleo "esp32" da Espressif 3.x (Gerenciador de Placas)
+  - Arduino IDE 2.x ou Arduino Cloud · núcleo "esp32" da Espressif 2.0.x ou 3.x
   - Placa: "ESP32C3 Dev Module"
   - Tools → USB CDC On Boot: Enabled   (para o Serial funcionar pela USB nativa)
 
@@ -15,7 +15,9 @@
   - PubSubClient ............ Nick O'Leary   (MQTT)
   - WebSockets .............. Markus Sattler (WebSocketsClient)
   - ArduinoJson ............. Benoit Blanchon, versão 7.x
-  - ESP32Servo .............. Kevin Harrington / John K. Bennett
+  O servo é acionado direto pelo periférico LEDC (sem biblioteca de servo),
+  com código compatível com os núcleos 2.x e 3.x. Se houver ESP32Servo ou
+  ESP32ServoController instaladas, elas não são usadas.
   O MPU6050 é lido direto pelos registradores (sem biblioteca) para permitir
   detectar 0x68/0x69, erros de I2C e valores inválidos.
 
@@ -27,7 +29,7 @@
     ssid <nome>     pass <senha>     host <ip do PC>
     mqttport <n>    wsport <n>       user <usuario>   mqttpass <senha>
     token <token>   base <topico>    id <deviceId>    proto mqtt|ws
-    show            reboot           help
+    sensores        show             reboot           help
 
   CONTRATO MQTT
     ESP32 → painel : {base}/{deviceId}/up/telemetry | status | ack | event
@@ -54,7 +56,6 @@
 #include <PubSubClient.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
-#include <ESP32Servo.h>
 #include <esp_task_wdt.h>
 #include <esp_system.h>
 #include <esp_arduino_version.h>
@@ -108,6 +109,9 @@
 #define SERVO_MIN_CMD_INTERVAL_MS  100     // no máximo 10 comandos/s
 #define SERVO_PULSE_MIN_US         500
 #define SERVO_PULSE_MAX_US         2400
+#define SERVO_PWM_FREQ_HZ          50
+#define SERVO_PWM_BITS             14      // ESP32-C3: até 14 bits a 50 Hz
+#define SERVO_LEDC_CHANNEL         0       // usado só no núcleo 2.x
 #define MQTT_KEEPALIVE_S           15
 #define MQTT_BUFFER                1024
 #define MAX_IN_PAYLOAD             512
@@ -128,7 +132,6 @@ Preferences prefs;
 WiFiClient netClient;
 PubSubClient mqtt(netClient);
 WebSocketsClient ws;
-Servo servo;
 
 bool useMqtt = true;
 
@@ -137,6 +140,9 @@ char topicTelemetry[112], topicStatus[112], topicAck[112], topicEvent[112], topi
 // ---- MPU6050
 uint8_t  mpuAddr = 0;
 bool     mpuOk = false, mpuValid = false;
+const char* mpuState = "NAO_DETECTADO";  // OK | NAO_DETECTADO | FALHA_LEITURA | TRAVADO
+int16_t  mpuPrev[7] = {0};
+uint16_t mpuSameCount = 0;
 uint32_t mpuErrors = 0, mpuReads = 0, mpuHz = 0, mpuRetryAt = 0, mpuInitTries = 0;
 uint8_t  mpuConsecErr = 0;
 float    ax = 0, ay = 0, az = 0, gx = 0, gy = 0, gz = 0;
@@ -148,6 +154,8 @@ volatile bool     sonarDone = false;
 bool     sonarWaiting = false, distValid = false;
 uint32_t sonarTrigAt = 0, lastSonarMs = 0, echoUs = 0;
 uint32_t sonarTimeouts = 0, sonarOutOfRange = 0;
+uint8_t  sonarNoPulse = 0;               // tentativas seguidas sem NENHUM pulso no ECHO
+uint32_t lastSonarValidMs = 0;
 float    distanceCm = 0;
 
 // ---- KY-040 (decodificação em quadratura por tabela)
@@ -160,6 +168,9 @@ int32_t  lastDetent = 0;
 uint32_t encEvents = 0;
 bool     btnPressed = false, btnRaw = false;
 uint32_t btnChangedAt = 0, btnPresses = 0;
+bool     encDetected = false;            // resultado do teste de presença (pull-ups do módulo)
+uint8_t  encProbeHist = 0;               // últimos 3 testes (bits)
+uint32_t lastEncProbeMs = 0, lastEncMoveMs = 0;
 
 // ---- Servo
 bool     servoAttached = false;
@@ -184,6 +195,8 @@ uint32_t lastTelemMs = 0, lastStatusMs = 0, lastEventMs = 0;
 // ============================ PROTÓTIPOS ===================================
 void logEvent(const char* lvl, const char* fmt, ...);
 bool linkUp();
+int32_t encoderDetents();
+const char* sonarState();
 bool sendUp(const char* topic, JsonDocument& doc);
 void handleIncoming(const uint8_t* p, size_t n, uint32_t t0us);
 
@@ -248,10 +261,11 @@ void runSerialCommand(String line) {
   val.trim();
 
   if (key == "help") {
-    Serial.println(F("Comandos: ssid pass host mqttport wsport user mqttpass token base id proto show reboot"));
+    Serial.println(F("Comandos: sensores show reboot · ssid pass host mqttport wsport user mqttpass token base id proto"));
     return;
   }
   if (key == "show")   { printConfig(); return; }
+  if (key == "sensores") { printSensorReport(); return; }
   if (key == "reboot") { Serial.println(F("Reiniciando...")); delay(200); ESP.restart(); }
 
   const char* strKeys[] = { "ssid", "pass", "host", "user", "mqttpass", "token", "base", "id", "proto" };
@@ -304,6 +318,26 @@ void logEvent(const char* lvl, const char* fmt, ...) {
   }
 }
 
+// ============================ RELATÓRIO DE SENSORES (SERIAL) ===============
+void printSensorReport() {
+  Serial.println(F("\n======== VERIFICAÇÃO DOS SENSORES ========"));
+  Serial.printf("MPU6050  (SDA 1, SCL 0) : %-14s", mpuState);
+  if (mpuOk) Serial.printf(" end. 0x%02X · %lu Hz · a=(%.2f %.2f %.2f) g", mpuAddr, (unsigned long)mpuHz, ax, ay, az);
+  Serial.println();
+  Serial.printf("HC-SR04  (TRIG 4, ECHO 3): %-14s", sonarState());
+  if (distValid) Serial.printf(" %.1f cm · eco %lu us", distanceCm, (unsigned long)echoUs);
+  Serial.printf(" · timeouts %lu\n", (unsigned long)sonarTimeouts);
+  Serial.printf("KY-040   (CLK 5, DT 6)   : %-14s contagem %ld · %s\n", encDetected ? "DETECTADO" : "NAO_DETECTADO",
+                (long)encoderDetents(), (lastEncMoveMs && millis() - lastEncMoveMs < 10000) ? "girando" : "parado");
+  Serial.printf("KY-040   botão (SW 7)    : %-14s %lu acionamentos (pressione para confirmar)\n",
+                btnPressed ? "PRESSIONADO" : "SOLTO", (unsigned long)btnPresses);
+  Serial.printf("SG90     (PWM 10)        : %-14s sem realimentação — confirme visualmente\n",
+                servoAttached ? "PWM_ATIVO" : "PWM_DESLIGADO");
+  Serial.printf("Wi-Fi: %s · link %s\n", wifiUp ? WiFi.localIP().toString().c_str() : "desconectado",
+                linkUp() ? (useMqtt ? "MQTT ok" : "WebSocket ok") : "offline");
+  Serial.println(F("==========================================="));
+}
+
 // ============================ WATCHDOG =====================================
 void wdtInit() {
 #if ESP_ARDUINO_VERSION_MAJOR >= 3
@@ -345,11 +379,12 @@ bool mpuInit(bool verbose) {
     ok = ok && i2cWrite(a, 0x1B, 0x08);    // giroscópio ±500 °/s
     ok = ok && i2cWrite(a, 0x1C, 0x00);    // acelerômetro ±2 g
     if (ok) {
-      mpuAddr = a; mpuOk = true; mpuConsecErr = 0;
+      mpuAddr = a; mpuOk = true; mpuConsecErr = 0; mpuSameCount = 0; mpuState = "OK";
       logEvent("ok", "MPU6050 detectado em 0x%02X (SDA=GPIO%d, SCL=GPIO%d)", a, I2C_SDA, I2C_SCL);
       return true;
     }
   }
+  mpuState = "NAO_DETECTADO";
   if (verbose || mpuInitTries % 15 == 0)
     logEvent("err", "MPU6050 não detectado em 0x68/0x69 — verifique SDA=GPIO1, SCL=GPIO0, 3V3 e GND");
   return false;
@@ -358,7 +393,7 @@ bool mpuInit(bool verbose) {
 void mpuFail() {
   mpuErrors++;
   if (++mpuConsecErr >= MPU_MAX_CONSEC_ERRORS && mpuOk) {
-    mpuOk = false; mpuValid = false;
+    mpuOk = false; mpuValid = false; mpuState = "FALHA_LEITURA";
     mpuRetryAt = millis() + MPU_RETRY_MS;
     logEvent("err", "MPU6050: comunicação interrompida após %d erros consecutivos", MPU_MAX_CONSEC_ERRORS);
   }
@@ -378,6 +413,14 @@ void mpuRead() {
     if (v[i] != -1) allFF = false;
   }
   if (allZero || allFF) { mpuFail(); return; }   // barramento travado ou sensor sem energia
+  // Sensor real sempre tem ruído: 100 leituras idênticas (1 s) = sensor congelado
+  bool same = memcmp(v, mpuPrev, sizeof(v)) == 0;
+  memcpy(mpuPrev, v, sizeof(v));
+  if (same) { if (mpuSameCount < 1000) mpuSameCount++; } else mpuSameCount = 0;
+  if (mpuSameCount >= 100) {
+    if (strcmp(mpuState, "TRAVADO") != 0) logEvent("warn", "MPU6050: valores congelados — sensor responde mas não atualiza");
+    mpuState = "TRAVADO";
+  } else mpuState = "OK";
   ax = v[0] / 16384.0f; ay = v[1] / 16384.0f; az = v[2] / 16384.0f;
   gx = v[4] / 65.5f;    gy = v[5] / 65.5f;    gz = v[6] / 65.5f;
   if (!isfinite(ax) || !isfinite(gx)) { mpuFail(); return; }
@@ -407,11 +450,18 @@ void sonarTask() {
       echoUs = dt;
       distanceCm = dt / 58.2f;
       distValid = true;
+      if (sonarNoPulse >= 5) logEvent("ok", "HC-SR04 voltou a responder");
+      sonarNoPulse = 0;
       if (distanceCm < SONAR_MIN_CM || distanceCm > SONAR_MAX_CM) sonarOutOfRange++;
+      else lastSonarValidMs = millis();
     } else if (micros() - sonarTrigAt > SONAR_TIMEOUT_US) {
       sonarWaiting = false;
       distValid = false;
       sonarTimeouts++;
+      if (sonarRise == 0) {                // nem começou o pulso: sensor ausente / sem 5 V / fio solto
+        if (sonarNoPulse < 255) sonarNoPulse++;
+        if (sonarNoPulse == 5) logEvent("err", "HC-SR04 não responde (sem pulso no ECHO, GPIO 3)");
+      } else sonarNoPulse = 0;             // houve pulso, mas sem eco: sensor presente, sem alvo
     }
     return;
   }
@@ -426,6 +476,12 @@ void sonarTask() {
   }
 }
 
+const char* sonarState() {
+  if (sonarNoPulse >= 5) return "SEM_RESPOSTA";
+  if (lastSonarValidMs && millis() - lastSonarValidMs < 1000) return "OK";
+  return "SEM_ALVO";
+}
+
 // ============================ KY-040 =======================================
 void IRAM_ATTR encIsr() {
   uint8_t s = (uint8_t)((digitalRead(ENCODER_CLK) << 1) | digitalRead(ENCODER_DT));
@@ -438,6 +494,34 @@ void IRAM_ATTR encIsr() {
   portEXIT_CRITICAL_ISR(&encMux);
 }
 
+// Teste de presença do KY-040: o módulo tem resistores de pull-up (10 kΩ) em CLK e DT
+// ligados ao pino "+". Com o pull-down interno ativado por alguns µs, uma linha que
+// continua em nível alto prova que o módulo está ligado. Sem módulo, as linhas caem.
+void encoderProbe() {
+  detachInterrupt(digitalPinToInterrupt(ENCODER_CLK));
+  detachInterrupt(digitalPinToInterrupt(ENCODER_DT));
+  pinMode(ENCODER_CLK, INPUT_PULLDOWN);
+  pinMode(ENCODER_DT, INPUT_PULLDOWN);
+  delayMicroseconds(60);
+  bool hit = digitalRead(ENCODER_CLK) || digitalRead(ENCODER_DT);
+  pinMode(ENCODER_CLK, INPUT_PULLUP);
+  pinMode(ENCODER_DT, INPUT_PULLUP);
+  delayMicroseconds(30);
+  portENTER_CRITICAL(&encMux);
+  encState = (uint8_t)((digitalRead(ENCODER_CLK) << 1) | digitalRead(ENCODER_DT));
+  portEXIT_CRITICAL(&encMux);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_CLK), encIsr, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_DT), encIsr, CHANGE);
+
+  encProbeHist = (uint8_t)(((encProbeHist << 1) | (hit ? 1 : 0)) & 0x07);
+  bool det = encProbeHist != 0 || (lastEncMoveMs && millis() - lastEncMoveMs < 10000);
+  if (det != encDetected) {
+    encDetected = det;
+    logEvent(det ? "ok" : "err", det ? "KY-040 detectado (pull-ups em CLK/DT)"
+                                     : "KY-040 não detectado — verifique + (3V3), GND, CLK=GPIO5, DT=GPIO6");
+  }
+}
+
 int32_t encoderDetents() {
   portENTER_CRITICAL(&encMux);
   int32_t raw = encRaw;
@@ -448,7 +532,8 @@ int32_t encoderDetents() {
 
 void encoderTask() {
   int32_t c = encoderDetents();
-  if (c != lastDetent) { encEvents += (uint32_t)abs(c - lastDetent); lastDetent = c; }
+  if (c != lastDetent) { encEvents += (uint32_t)abs(c - lastDetent); lastDetent = c; lastEncMoveMs = millis(); }
+  if (millis() - lastEncProbeMs >= 5000 && millis() - lastEncMoveMs > 500) { lastEncProbeMs = millis(); encoderProbe(); }
 
   bool raw = digitalRead(ENCODER_SW) == LOW;   // ativo em nível baixo
   if (raw != btnRaw) { btnRaw = raw; btnChangedAt = millis(); }
@@ -459,8 +544,40 @@ void encoderTask() {
 }
 
 // ============================ SERVO ========================================
+// PWM do servo via LEDC — mesma API para os núcleos 2.x e 3.x
+bool servoAttach() {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  if (!ledcAttach(SERVO_PIN, SERVO_PWM_FREQ_HZ, SERVO_PWM_BITS)) return false;
+#else
+  if (ledcSetup(SERVO_LEDC_CHANNEL, SERVO_PWM_FREQ_HZ, SERVO_PWM_BITS) == 0) return false;
+  ledcAttachPin(SERVO_PIN, SERVO_LEDC_CHANNEL);
+#endif
+  return true;
+}
+
+void servoDetach() {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcDetach(SERVO_PIN);
+#else
+  ledcDetachPin(SERVO_PIN);
+#endif
+  pinMode(SERVO_PIN, OUTPUT);
+  digitalWrite(SERVO_PIN, LOW);           // sem pulso: o SG90 não recebe comando de posição
+}
+
+void servoWriteDeg(int deg) {
+  uint32_t us = SERVO_PULSE_MIN_US + (uint32_t)((SERVO_PULSE_MAX_US - SERVO_PULSE_MIN_US) * (long)deg / 180L);
+  uint32_t period = 1000000UL / SERVO_PWM_FREQ_HZ;                 // 20 000 µs
+  uint32_t duty = (uint32_t)(((uint64_t)us * ((1UL << SERVO_PWM_BITS) - 1)) / period);
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+  ledcWrite(SERVO_PIN, duty);
+#else
+  ledcWrite(SERVO_LEDC_CHANNEL, duty);
+#endif
+}
+
 void servoSafe(const char* why) {
-  if (servoAttached) { servo.detach(); servoAttached = false; }
+  if (servoAttached) { servoDetach(); servoAttached = false; }
   logEvent("warn", "Servo em estado seguro (PWM desligado, sem movimento): %s", why);
 }
 
@@ -498,13 +615,13 @@ void handleCmd(JsonDocument& in, uint32_t t0us) {
   }
 
   // O servo só recebe PWM após o primeiro comando válido: nada se move no boot.
-  if (!servoAttached) {
-    servo.setPeriodHertz(50);
-    servo.attach(SERVO_PIN, SERVO_PULSE_MIN_US, SERVO_PULSE_MAX_US);
+  int target = (int)lroundf(a);
+  if (!servoAttached) {                   // ao ligar, o LEDC começa com duty 0 (sem pulso)
+    if (!servoAttach()) { sendCmdAck(seq, "rejected", "falha ao configurar PWM (LEDC)", t0us); return; }
     servoAttached = true;
   }
-  servoCmd = (int)lroundf(a);
-  servo.write(servoCmd);
+  servoCmd = target;
+  servoWriteDeg(servoCmd);
   lastServoCmdMs = millis();
   sendCmdAck(seq, "ok", nullptr, t0us);   // "ok" = PWM aplicado; posição física NÃO é medida
 }
@@ -588,6 +705,14 @@ void sendTelemetry() {
   g["encoderEvents"] = encEvents;
   g["buttonPresses"] = btnPresses;
   g["servoAttached"] = servoAttached;
+
+  JsonObject pr = g["presence"].to<JsonObject>();
+  pr["mpu"] = mpuState;
+  pr["sonar"] = sonarState();
+  pr["encoder"] = encDetected ? "DETECTADO" : "NAO_DETECTADO";
+  pr["encoderActive"] = lastEncMoveMs && millis() - lastEncMoveMs < 10000;
+  pr["buttonSeen"] = btnPresses > 0;
+  pr["servoPwm"] = servoAttached;
 
   if (!sendUp(topicTelemetry, d)) telemSeq--;   // não conta como enviada
 }
@@ -684,10 +809,19 @@ void mqttTask() {
     mqtt.subscribe(topicDown, 1);
     logEvent("ok", "MQTT conectado a %s:%u · inscrito em %s", cfg.host.c_str(), cfg.mqttPort, topicDown);
   } else {
-    // Códigos PubSubClient: -4 timeout, -2 falha TCP, 4 credenciais, 5 não autorizado
-    Serial.printf("[mqtt] falha (estado %d) — nova tentativa em %lu ms\n", mqtt.state(), (unsigned long)mqttBackoff);
+    int st = mqtt.state();
+    const char* why =
+      st == -4 ? "timeout: o broker não respondeu ao CONNECT" :
+      st == -2 ? "falha TCP: não abriu conexão com host:porta (IP errado, Mosquitto parado, só ouvindo localhost ou firewall)" :
+      st == 1  ? "versão de protocolo recusada" :
+      st == 2  ? "client id recusado" :
+      st == 3  ? "broker indisponível" :
+      st == 4  ? "usuário/senha inválidos" :
+      st == 5  ? "não autorizado (allow_anonymous false?)" : "erro desconhecido";
+    Serial.printf("[mqtt] falha ao conectar em %s:%u (estado %d: %s) — nova tentativa em %lu ms\n",
+                  cfg.host.c_str(), cfg.mqttPort, st, why, (unsigned long)mqttBackoff);
     mqttRetryAt = millis() + mqttBackoff + random(0, 300);
-    mqttBackoff = min<uint32_t>(mqttBackoff * 2, 30000);
+    mqttBackoff = min<uint32_t>(mqttBackoff * 2, 10000);   // laboratório: no máximo 10 s entre tentativas
   }
 }
 
@@ -770,6 +904,7 @@ void setup() {
   encState = (uint8_t)((digitalRead(ENCODER_CLK) << 1) | digitalRead(ENCODER_DT));
   attachInterrupt(digitalPinToInterrupt(ENCODER_CLK), encIsr, CHANGE);
   attachInterrupt(digitalPinToInterrupt(ENCODER_DT), encIsr, CHANGE);
+  encoderProbe();
 
   // MPU6050
   Wire.begin(I2C_SDA, I2C_SCL);
@@ -833,6 +968,11 @@ void loop() {
   if (ms - lastStatusMs >= STATUS_PERIOD_MS) {
     lastStatusMs = ms;
     mpuHz = mpuReads; mpuReads = 0;
+    static uint32_t lastReport = 0, bootReported = 0;
+    // Relatório no Serial: 3 s após o boot e a cada 10 s enquanto não houver link
+    if ((!bootReported && ms > 3000) || (!linkUp() && ms - lastReport >= 10000)) {
+      bootReported = 1; lastReport = ms; printSensorReport();
+    }
     if (linkUp()) sendStatus();
     loopMaxUs = 0;
 

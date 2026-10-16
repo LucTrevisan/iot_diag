@@ -102,7 +102,14 @@ details summary{cursor:pointer;color:var(--acc);font-weight:600;margin:4px 0}
 .knob svg{width:130px;height:130px;flex:none}
 #toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1b2633;border:1px solid var(--acc);padding:10px 16px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:calc(100% - 32px);z-index:9}
 #toast.show{opacity:1}
-.sim-badge{font:700 10px var(--mono);color:var(--acc);border:1px solid var(--acc);padding:1px 5px;margin-left:6px}
+.badge{display:inline-block;font:700 11px var(--mono);padding:3px 8px;border:1px solid;letter-spacing:.04em;white-space:nowrap}
+.badge.ok{color:var(--ok);border-color:var(--ok);background:rgba(34,197,94,.08)}
+.badge.warn{color:var(--warn);border-color:var(--warn);background:rgba(234,179,8,.08)}
+.badge.bad{color:#fca5a5;border-color:var(--bad);background:rgba(239,68,68,.1)}
+.badge.mut{color:var(--mut);border-color:var(--line)}
+.pres td{vertical-align:middle;white-space:normal}
+.pres td:first-child{font-family:inherit;font-weight:600;white-space:nowrap}
+.pres .det{color:var(--mut);font-size:12px;min-width:200px}
 footer{color:var(--mut);font-size:11.5px;padding:24px 0;text-align:center}
 @media (max-width:640px){.conbar .wide{grid-column:span 1}.big{font-size:32px}.pill{min-width:0;flex:1 1 30%}}
 </style>
@@ -114,7 +121,6 @@ footer{color:var(--mut);font-size:11.5px;padding:24px 0;text-align:center}
     <div><h1>IoT Connectivity &amp; Diagnostics Lab</h1><p>ESP32-C3 Mini · MPU6050 · HC-SR04 · KY-040 · SG90</p></div>
   </div>
   <div class="pills">
-    <span class="tag sim" id="modeTag">SIMULAÇÃO</span>
     <div class="pill" id="pLink"><b>Servidor/Broker</b><span>OFFLINE</span></div>
     <div class="pill" id="pDev"><b>ESP32</b><span>SEM DADOS</span></div>
     <div class="pill" id="pWifi"><b>Wi-Fi</b><span>—</span></div>
@@ -125,7 +131,6 @@ footer{color:var(--mut);font-size:11.5px;padding:24px 0;text-align:center}
 
 <div class="wrap">
   <section class="card conbar" aria-label="Conexão">
-    <label>Modo<select id="cMode"><option value="sim">Simulador</option><option value="real">ESP32 real</option></select></label>
     <label>Protocolo<select id="cProto"><option value="mqtt">MQTT (via WebSocket)</option><option value="ws">WebSocket (Node.js)</option></select></label>
     <label class="wide"><span id="urlLbl">URL do broker (listener WebSocket)</span><input id="cUrl" spellcheck="false"></label>
     <label id="baseWrap">Tópico base<input id="cBase" spellcheck="false"></label>
@@ -137,7 +142,7 @@ footer{color:var(--mut);font-size:11.5px;padding:24px 0;text-align:center}
   </section>
 
   <div class="banner warn" id="httpsBanner" hidden>⚠ Esta página está em HTTPS e a URL usa <code>ws://</code>. O navegador vai bloquear a conexão (conteúdo misto). Abra o arquivo localmente ou por HTTP na rede do laboratório, ou use <code>wss://</code> com certificado.</div>
-  <div class="banner bad" id="faultBanner" hidden>⛔ <span><b>FALHA SIMULADA ATIVA:</b> <span id="faultList"></span>. Comandos do servo estão bloqueados.</span></div>
+  <div class="banner bad" id="faultBanner" hidden>⛔ <span><b>TESTE DE FALHA ATIVO:</b> <span id="faultList"></span>. Comandos do servo estão bloqueados.</span></div>
 
   <nav class="tabs" role="tablist">
     <button data-tab="painel" class="on">Painel principal</button>
@@ -160,15 +165,20 @@ footer{color:var(--mut);font-size:11.5px;padding:24px 0;text-align:center}
       <div class="card kpi"><h2>Memória livre</h2><div class="v" id="kHeap">—</div><div class="sub" id="kHeapSub">mínima —</div></div>
       <div class="card kpi"><h2>Último teste</h2><div class="v" id="kLast">—</div><div class="sub" id="kLastSub">nenhum teste de latência</div></div>
     </div>
-    <div class="grid g2 mt">
-      <div class="card"><h2>Indicadores dos sensores</h2>
-        <div class="lights">
-          <div class="light"><i class="dot" id="lMpu"></i><b>MPU6050</b> <small class="t-mut">GPIO 1 SDA · 0 SCL</small><span id="lMpuT">—</span></div>
-          <div class="light"><i class="dot" id="lSon"></i><b>HC-SR04</b> <small class="t-mut">GPIO 4 TRIG · 3 ECHO</small><span id="lSonT">—</span></div>
-          <div class="light"><i class="dot" id="lEnc"></i><b>KY-040</b> <small class="t-mut">GPIO 5 · 6 · 7</small><span id="lEncT">—</span></div>
-          <div class="light"><i class="dot" id="lSrv"></i><b>SG90</b> <small class="t-mut">GPIO 10 PWM</small><span id="lSrvT">—</span></div>
-        </div>
-      </div>
+    <div class="card mt"><h2>Sensores — conexão e atividade</h2>
+      <div class="tscroll"><table class="pres">
+        <thead><tr><th>Sensor</th><th>Pinos</th><th>Conexão</th><th>Atividade</th><th>Detalhe</th></tr></thead>
+        <tbody>
+          <tr><td><i class="dot" id="dMpu"></i> MPU6050</td><td>SDA 1 · SCL 0</td><td id="cMpu"></td><td id="aMpu"></td><td class="det" id="tMpu"></td></tr>
+          <tr><td><i class="dot" id="dSon"></i> HC-SR04</td><td>TRIG 4 · ECHO 3</td><td id="cSon"></td><td id="aSon"></td><td class="det" id="tSon"></td></tr>
+          <tr><td><i class="dot" id="dEnc"></i> KY-040 giro</td><td>CLK 5 · DT 6</td><td id="cEnc"></td><td id="aEnc"></td><td class="det" id="tEnc"></td></tr>
+          <tr><td><i class="dot" id="dBtn"></i> KY-040 botão</td><td>SW 7</td><td id="cBtn"></td><td id="aBtn"></td><td class="det" id="tBtn"></td></tr>
+          <tr><td><i class="dot" id="dSrv"></i> SG90</td><td>PWM 10</td><td id="cSrv"></td><td id="aSrv"></td><td class="det" id="tSrv"></td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">Como o firmware verifica: <b>MPU6050</b> responde no I²C (0x68/0x69) e os valores variam · <b>HC-SR04</b> devolve pulso no ECHO (sem pulso = sem 5 V ou fio solto; pulso sem eco = sem alvo) · <b>KY-040</b> pelos resistores de pull-up do módulo, testados a cada 5 s · <b>botão</b> só é confirmado ao ser pressionado · <b>SG90</b> não tem como ser detectado eletricamente: confirme visualmente com um comando.</p>
+    </div>
+    <div class="grid mt">
       <div class="card"><h2>Distância e aceleração (ao vivo)</h2>
         <canvas id="cMini"></canvas>
         <div class="legend"><span><i style="background:#22d3ee"></i>distância (cm)</span><span><i style="background:#f5a524"></i>|a| ×100 (g)</span></div>
@@ -179,7 +189,7 @@ footer{color:var(--mut);font-size:11.5px;padding:24px 0;text-align:center}
   <!-- SENSORES -->
   <section class="tab" id="tab-sensores">
     <div class="grid g2">
-      <div class="card"><h2>HC-SR04 · Distância <span id="simB1"></span></h2>
+      <div class="card"><h2>HC-SR04 · Distância</h2>
         <div class="big" id="sDist">—<small> cm</small></div>
         <dl class="rows">
           <dt>Tempo de eco</dt><dd id="sEcho">—</dd>
@@ -190,7 +200,7 @@ footer{color:var(--mut);font-size:11.5px;padding:24px 0;text-align:center}
         </dl>
         <canvas id="cDist"></canvas>
       </div>
-      <div class="card"><h2>MPU6050 · Aceleração e giro <span id="simB2"></span></h2>
+      <div class="card"><h2>MPU6050 · Aceleração e giro</h2>
         <div class="tscroll"><table>
           <tr><th></th><th>X</th><th>Y</th><th>Z</th><th>|módulo|</th></tr>
           <tr><th>Acel. (g)</th><td id="aX">—</td><td id="aY">—</td><td id="aZ">—</td><td id="aM">—</td></tr>
@@ -207,7 +217,7 @@ footer{color:var(--mut);font-size:11.5px;padding:24px 0;text-align:center}
         <div class="legend"><span><i style="background:#f5a524"></i>gX</span><span><i style="background:#22d3ee"></i>gY</span><span><i style="background:#a78bfa"></i>gZ</span></div>
         <div class="row mt"><button id="btnMove">Teste de movimentação (5 s)</button><span id="moveRes" class="t-mut"></span></div>
       </div>
-      <div class="card"><h2>KY-040 · Encoder rotativo <span id="simB3"></span></h2>
+      <div class="card"><h2>KY-040 · Encoder rotativo</h2>
         <div class="knob">
           <svg viewBox="0 0 120 120" aria-label="Representação do encoder">
             <g id="ticks"></g>
@@ -281,7 +291,7 @@ footer{color:var(--mut);font-size:11.5px;padding:24px 0;text-align:center}
           <dt>PUBACK do broker (QoS 1)</dt><dd id="bPuback">—</dd>
           <dt>Mensagens recebidas / enviadas</dt><dd id="bRxTx">—</dd>
           <dt>Payloads inválidos</dt><dd id="bBad">—</dd>
-          <dt>Descartadas por falha simulada</dt><dd id="bDrop">—</dd>
+          <dt>Descartadas por teste de falha</dt><dd id="bDrop">—</dd>
           <dt>Quedas do link / reconexões</dt><dd id="bRec">—</dd>
           <dt>Tempo médio de reconexão</dt><dd id="bRecAvg">—</dd>
         </dl>
@@ -375,14 +385,13 @@ ESP32  → {"type":"cmdAck","deviceId":"…","sequence":7,"status":"ok","angle":
         </div>
         <div class="res" id="diagRes"><div>Nenhum teste executado.</div></div>
       </div>
-      <div class="card"><h2>Simulação de falhas</h2>
+      <div class="card"><h2>Testes de falha de comunicação</h2>
         <div class="row">
           <button id="fNet">Derrubar link de rede</button>
           <button id="fBroker">Servidor/broker indisponível (10 s)</button>
         </div>
         <label class="mt">Atraso artificial injetado no cliente: <b id="fDelayV">0 ms</b><input type="range" id="fDelay" min="0" max="500" step="10" value="0"></label>
         <label class="mt">Descarte de mensagens recebidas: <b id="fDropV">0 %</b><input type="range" id="fDrop" min="0" max="50" step="1" value="0"></label>
-        <div class="row mt"><label style="flex-direction:row;align-items:center;gap:8px;text-transform:none"><input type="checkbox" id="fSens" style="width:auto"> Substituir sensores por dados simulados</label></div>
         <div class="row mt"><button class="dan" id="fClear">Limpar todas as falhas</button></div>
         <p class="note">Falhas ficam identificadas no topo, nos logs e nos relatórios. Enquanto houver falha ativa ou o link não estiver ONLINE, o painel não envia comandos ao servo. Para atraso no lado do servidor, use a opção equivalente do servidor Node.js.</p>
       </div>
@@ -411,7 +420,7 @@ ESP32  → {"type":"cmdAck","deviceId":"…","sequence":7,"status":"ok","angle":
   <section class="tab" id="tab-rel">
     <div class="card"><h2>Resultados por sessão</h2>
       <div class="row"><button id="btnCsv">Exportar CSV</button><button id="btnJson">Exportar JSON</button><button class="dan sm" id="btnClrSes">Apagar sessões</button></div>
-      <div class="tscroll mt"><table><thead><tr><th>Data</th><th>Modo</th><th>Prot.</th><th>QoS</th><th>Dur.</th><th>Hz</th><th>Env./Conf.</th><th>Perda</th><th>Dup.</th><th>Mín</th><th>Méd</th><th>Máx</th><th>P95</th><th>P99</th><th>Jitter</th><th>msg/s</th><th>Recon.</th><th>Falhas</th></tr></thead><tbody id="sesTable"></tbody></table></div>
+      <div class="tscroll mt"><table><thead><tr><th>Data</th><th>Prot.</th><th>QoS</th><th>Dur.</th><th>Hz</th><th>Env./Conf.</th><th>Perda</th><th>Dup.</th><th>Mín</th><th>Méd</th><th>Máx</th><th>P95</th><th>P99</th><th>Jitter</th><th>msg/s</th><th>Recon.</th><th>Falhas</th></tr></thead><tbody id="sesTable"></tbody></table></div>
     </div>
     <div class="card mt"><h2>Comparação MQTT × WebSocket</h2>
       <div class="tscroll"><table><thead><tr><th>Métrica</th><th>MQTT</th><th>WebSocket</th><th>Melhor</th></tr></thead><tbody id="cmpTable"></tbody></table></div>
@@ -435,7 +444,7 @@ const fmtDur=ms=>{if(!Number.isFinite(ms))return'—';let s=Math.floor(ms/1000);
 const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 const enc=new TextEncoder(),dec=new TextDecoder();
 
-const DEF={mode:'sim',proto:'mqtt',mqttUrl:'ws://192.168.0.10:9001',wsUrl:'ws://192.168.0.10:8080',base:'senai/iotlab',deviceId:'ESP32C3-KIT01',user:'',pass:'',keepalive:15,staleMs:3000,servoMin:10,servoMax:170};
+const DEF={proto:'mqtt',mqttUrl:'ws://192.168.0.10:9001',wsUrl:'ws://192.168.0.10:8080',base:'senai/iotlab',deviceId:'ESP32C3-KIT01',user:'',pass:'',keepalive:15,staleMs:3000,servoMin:10,servoMax:170};
 const cfg=Object.assign({},DEF,store.get('iotlab.cfg',{}));
 const saveCfg=()=>store.set('iotlab.cfg',Object.assign({},cfg,{pass:''}));
 
@@ -444,8 +453,8 @@ const S={link:'OFFLINE',linkSince:0,downAt:0,linkDrops:0,reconnects:[],brokerRtt
   lastTelem:0,lastStatus:0,telem:null,sensors:null,status:null,lwt:false,telemSeq:null,telemLost:0,telemDup:0,telemTimes:[],
   buf:[],sonar:{to:0,oor:0},mpuInvalid:0,encOff:0,lastEnc:null,encEvents:[],lastBtn:false,lastWifiDisc:null,
   servo:{seq:0,pending:new Map(),sent:null,state:'—',ackMs:null,proc:null,lastSend:0},
-  faults:{delay:0,drop:0,sensorSim:false,blockUntil:0},
-  renderLat:0,lastRxT:0,lastPaintRx:0,sessions:store.get('iotlab.sessions',[])};
+  faults:{delay:0,drop:0,blockUntil:0},
+  renderLat:0,lastRxT:0,lastPaintRx:0,sessions:store.get('iotlab.sessions',[]).filter(r=>r.modo!=='SIMULADO')};
 let conn=null, T=null;
 
 /* ---------- log ---------- */
@@ -479,7 +488,7 @@ class BaseConn{
   connect(){this.manual=false;this.tries=0;this.open()}
   close(){this.manual=true;clearTimeout(this.rt);this._close();setLink('OFFLINE','desconectado pelo usuário')}
   scheduleReconnect(){if(this.manual)return;clearTimeout(this.rt);const d=Math.min(30000,500*2**this.tries)+Math.random()*300;this.tries++;setLink('RECONECTANDO',`tentativa ${this.tries} em ${(d/1000).toFixed(1)} s`);this.rt=setTimeout(()=>{if(!this.manual)this.open()},d)}
-  blocked(){if(S.faults.blockUntil>now()){setLink('ERRO','servidor/broker indisponível — falha simulada');this.scheduleReconnect();return true}return false}
+  blocked(){if(S.faults.blockUntil>now()){setLink('ERRO','servidor/broker indisponível — teste de falha');this.scheduleReconnect();return true}return false}
 }
 
 class WsConn extends BaseConn{
@@ -503,7 +512,7 @@ class WsConn extends BaseConn{
   }
   send(o){if(!this.ws||this.ws.readyState!==1)return false;this.ws.send(JSON.stringify(o));S.txCount++;return true}
   _close(){const w=this.ws;this.ws=null;clearInterval(this.hb);if(w)w.close()}
-  kill(){if(this.ws){log('warn','Falha simulada: link WebSocket derrubado');this.ws.close()}}
+  kill(){if(this.ws){log('warn','Teste de falha: link WebSocket derrubado');this.ws.close()}}
 }
 
 class MqttConn extends BaseConn{
@@ -558,34 +567,7 @@ class MqttConn extends BaseConn{
     const ok=this.raw(mPkt(0x30|(qos<<1),all));if(ok)S.txCount++;return ok;
   }
   _close(){const w=this.ws;this.ws=null;clearInterval(this.pingT);this.connected=false;if(w){try{w.send(new Uint8Array([0xE0,0]))}catch(e){}w.close()}}
-  kill(){if(this.ws){log('warn','Falha simulada: conexão MQTT derrubada sem DISCONNECT');this.ws.close()}}
-}
-
-/* ---------- Simulador (claramente identificado) ---------- */
-const SIM={seq:0,boot:0,enc:0,servo:90,sonarTO:0,disc:0,
-  start(c){this.c=c;if(!this.boot)this.boot=Date.now();this.stop();this.t=setInterval(()=>this.telem(),50);this.st=setInterval(()=>this.status(),1000);this.status()},
-  stop(){clearInterval(this.t);clearInterval(this.st)},
-  sensors(){const tt=Date.now()/1000,mv=Math.sin(tt*0.25)>0.7;let d=25+10*Math.sin(tt*0.4)+gauss()*0.3;let to=false;if(Math.random()<0.01){d=null;to=true;this.sonarTO++}
-    if(Math.random()<0.06){this.enc+=Math.sin(tt*0.2)>0?1:-1}
-    return{to,s:{distance:d==null?null:+d.toFixed(1),echoUs:d==null?null:Math.round(d*58.2),accelX:+((mv?Math.sin(tt*4)*0.35:0)+gauss()*0.01).toFixed(3),accelY:+((mv?Math.cos(tt*3)*0.25:0)+gauss()*0.01).toFixed(3),accelZ:+(0.99+gauss()*0.01).toFixed(3),
-    gyroX:+((mv?Math.cos(tt*4)*80:0)+gauss()*0.4).toFixed(2),gyroY:+((mv?Math.sin(tt*3)*60:0)+gauss()*0.4).toFixed(2),gyroZ:+(gauss()*0.4).toFixed(2),encoder:this.enc,encoderBtn:(tt%9)<0.4,servoCommand:this.servo}}},
-  telem(){const {s}=this.sensors();this.c.deliver({deviceId:cfg.deviceId,sequence:++this.seq,timestamp:Date.now()-this.boot,type:'telemetry',sim:true,sensors:s,diag:{mpuOk:true,mpuAddr:'0x68',mpuHz:100,mpuErrors:0,sonarTimeouts:this.sonarTO,sonarOutOfRange:0,encoderInvalid:0}})},
-  status(){this.rssi=clamp((this.rssi??-58)+gauss()*1.2,-75,-45);this.c.deliver({deviceId:cfg.deviceId,type:'status',sim:true,uptimeMs:Date.now()-this.boot,freeHeap:Math.round(182000+gauss()*800),minHeap:171200,resetReason:'POWERON',fw:'sim-1.0',wifi:{ssid:'LAB-IOT (sim)',ip:'192.168.0.50',mac:'34:85:18:00:AA:01',gateway:'192.168.0.1',rssi:Math.round(this.rssi),channel:6,connectMs:2310,disconnects:this.disc,reconnectMs:this.disc?1800:0}})},
-  handle(o){const c=this.c;if(!o||!o.type)return;
-    if(o.type==='ping'){const p=0.15+Math.random()*0.6;setTimeout(()=>c.deliver({type:'ack',deviceId:cfg.deviceId,testId:o.testId,sequence:o.sequence,procUs:Math.round(p*1000)}),p)}
-    else if(o.type==='heartbeat')c.deliver({type:'heartbeatAck',t0:o.t0});
-    else if(o.type==='cmd'){if(o.cmd==='safe'){this.servo=90;return c.deliver({type:'cmdAck',deviceId:cfg.deviceId,sequence:o.sequence,status:'safe',angle:90,procUs:60})}
-      const a=Number(o.angle);if(!Number.isFinite(a)||a<0||a>180)return c.deliver({type:'cmdAck',deviceId:cfg.deviceId,sequence:o.sequence,status:'rejected',reason:'ângulo inválido',procUs:40});
-      this.servo=Math.round(a);c.deliver({type:'cmdAck',deviceId:cfg.deviceId,sequence:o.sequence,status:'ok',angle:this.servo,procUs:Math.round(70+Math.random()*60)})}
-  }
-};
-class SimConn extends BaseConn{
-  open(){if(this.blocked())return;if(!ONL(S.link))setLink('RECONECTANDO','conectando ao simulador');clearTimeout(this.ot);this.ot=setTimeout(()=>{if(this.manual)return;this.on=true;this.tries=0;setLink('ONLINE','simulador conectado');SIM.start(this);this.hb=setInterval(()=>this.send({type:'heartbeat',t0:now()}),2000)},250+Math.random()*250)}
-  owd(){const b=cfg.proto==='mqtt'?3.4:2.2;return b+Math.random()*2.4+(Math.random()<0.03?12+Math.random()*35:0)}
-  deliver(o){if(!this.on)return;setTimeout(()=>{if(this.on)onMessage(o)},this.owd())}
-  send(o){if(!this.on)return false;S.txCount++;setTimeout(()=>{if(this.on)SIM.handle(o)},this.owd());return true}
-  _close(){this.on=false;clearTimeout(this.ot);clearInterval(this.hb);SIM.stop()}
-  kill(){if(!this.on)return;log('warn','Falha simulada: link do simulador derrubado');this._close();this.manual=false;setLink('RECONECTANDO','queda simulada');SIM.disc++;this.scheduleReconnect()}
+  kill(){if(this.ws){log('warn','Teste de falha: conexão MQTT derrubada sem DISCONNECT');this.ws.close()}}
 }
 
 /* ---------- recepção ---------- */
@@ -627,7 +609,7 @@ function onTelem(o){
     if(d<=-1000||(o.sequence<5&&S.telemSeq>100)){log('warn',`Sequência reiniciou (${S.telemSeq} → ${o.sequence}) — possível reset do ESP32`)}
     else if(d>1)S.telemLost+=d-1;}
   S.telemSeq=o.sequence;S.lastTelem=t;S.lwt=false;S.telem=o;S.telemTimes.push(t);
-  const sn=S.faults.sensorSim?SIM.sensors().s:o.sensors;S.sensors=sn;S.sensorsSim=!!(S.faults.sensorSim||o.sim);
+  const sn=o.sensors;S.sensors=sn;
   const dg=o.diag||{};
   // HC-SR04
   const dist=sn.distance,dv=Number.isFinite(dist)&&dist>=0;const to=!dv;const oor=dv&&(dist<2||dist>400);
@@ -654,13 +636,13 @@ function devState(){if(!S.lastTelem)return'SEM DADOS';if(S.lwt)return'OFFLINE';c
 function wifiState(){if(S.link==='ERRO')return'ERRO';if(S.link==='RECONECTANDO')return'RECONECTANDO';const d=devState();if(d==='SEM DADOS')return S.link==='OFFLINE'?'OFFLINE':'—';if(d==='OFFLINE')return'OFFLINE';const r=S.status?.wifi?.rssi;if(d==='INSTÁVEL'||(Number.isFinite(r)&&r<-80))return'INSTÁVEL';return'ONLINE'}
 const cls=s=>({ONLINE:'ok','INSTÁVEL':'warn',OFFLINE:'bad',RECONECTANDO:'info',ERRO:'bad'}[s]||'mut');
 function pill(id,st){const p=$(id);p.className='pill s-'+cls(st);p.querySelector('span').textContent=st}
-function anyFault(){const F=S.faults,l=[];if(F.delay)l.push(`atraso ${F.delay} ms`);if(F.drop)l.push(`descarte ${F.drop}%`);if(F.sensorSim)l.push('sensores simulados');if(F.blockUntil>now())l.push('servidor indisponível');return l}
+function anyFault(){const F=S.faults,l=[];if(F.delay)l.push(`atraso ${F.delay} ms`);if(F.drop)l.push(`descarte ${F.drop}%`);if(F.blockUntil>now())l.push('servidor indisponível');return l}
 
 /* ---------- servo ---------- */
 function canCommand(){
   if(!conn||S.link!=='ONLINE'){toast('Comando bloqueado: link não está ONLINE');return false}
   if(devState()!=='ONLINE'){toast('Comando bloqueado: ESP32 sem telemetria recente');return false}
-  if(anyFault().length){toast('Comando bloqueado: há falha simulada ativa');return false}
+  if(anyFault().length){toast('Comando bloqueado: há teste de falha ativo');return false}
   return true;
 }
 function cancelServoPending(why){if(S.servo.pending.size){S.servo.pending.clear();S.servo.state='CANCELADO — '+why;log('warn','Comandos pendentes do servo cancelados: '+why)}}
@@ -687,7 +669,7 @@ function startTest(){
   if(!conn||S.link!=='ONLINE')return toast('Conecte antes de iniciar o teste');
   if(devState()!=='ONLINE')toast('Atenção: ESP32 sem telemetria recente — os pings podem não ser respondidos');
   const dur=+$('#tDur').value,rate=+$('#tRate').value,qos=cfg.proto==='mqtt'?+$('#tQos').value:null,toMs=+$('#tTo').value;
-  T={id:'T'+Date.now().toString(36),proto:cfg.proto,mode:cfg.mode,qos,dur,rate,toMs,start:now(),startWall:new Date(),endAt:now()+dur*1000,seq:0,pending:new Map(),done:new Set(),lostSet:new Set(),rtts:[],procs:[],nets:[],dup:0,late:0,sent:0,drops:0,reconn:[],rssi:[],faults:anyFault()};
+  T={id:'T'+Date.now().toString(36),proto:cfg.proto,qos,dur,rate,toMs,start:now(),startWall:new Date(),endAt:now()+dur*1000,seq:0,pending:new Map(),done:new Set(),lostSet:new Set(),rtts:[],procs:[],nets:[],dup:0,late:0,sent:0,drops:0,reconn:[],rssi:[],faults:anyFault()};
   chRtt.clear();
   T.timer=setInterval(tick,1000/rate);
   $('#btnTest').textContent='Parar teste';
@@ -717,7 +699,7 @@ function finishTest(aborted){
   if(!T)return;clearInterval(T.timer);
   for(const s of T.pending.keys())T.lostSet.add(s);T.pending.clear();
   const el=Math.min(now(),T.endAt)-T.start,st=stats(T.rtts)||{};
-  const r={id:T.id,data:T.startWall.toISOString(),modo:T.mode==='sim'?'SIMULADO':'REAL',protocolo:T.proto==='mqtt'?'MQTT':'WebSocket',qos:T.qos??'',duracao_s:+(el/1000).toFixed(1),taxa_hz:T.rate,
+  const r={id:T.id,data:T.startWall.toISOString(),protocolo:T.proto==='mqtt'?'MQTT':'WebSocket',qos:T.qos??'',duracao_s:+(el/1000).toFixed(1),taxa_hz:T.rate,
     enviadas:T.sent,confirmadas:T.rtts.length,nao_confirmadas:T.lostSet.size-T.late,atrasadas:T.late,duplicadas:T.dup,perda_pct:T.sent?+((T.lostSet.size-T.late)/T.sent*100).toFixed(2):0,
     rtt_min:+f(st.min,2),rtt_med:+f(st.avg,2),rtt_max:+f(st.max,2),p95:+f(st.p95,2),p99:+f(st.p99,2),jitter:+f(st.jitter,2),msg_s:+(T.rtts.length/(el/1000)).toFixed(1),
     proc_med_ms:+f(mean(T.procs),3),rede_med_ms:+f(mean(T.nets),2),render_ms:+f(S.renderLat,1),reconexoes:T.reconn.length,reconexao_med_ms:+f(mean(T.reconn),0),quedas:T.drops,rssi_med:+f(mean(T.rssi),0),
@@ -758,17 +740,49 @@ const chRtt=new Chart($('#cRtt'),{n:2,len:400,min:0});
 function frame(){charts.forEach(c=>c.draw());if(S.lastRxT>S.lastPaintRx){const rl=now()-S.lastRxT;S.renderLat=S.renderLat?S.renderLat*.95+rl*.05:rl;S.lastPaintRx=S.lastRxT}requestAnimationFrame(frame)}
 
 /* ---------- UI ---------- */
+function setHTML(id,v){const e=$(id);if(e&&e.innerHTML!==v)e.innerHTML=v}
+const badge=(t,c)=>`<span class="badge ${c}">${t}</span>`;
+/* Presença dos sensores — baseada no que o firmware mede no hardware (diag.presence) */
+function presence(){
+  const ds=devState(),fresh=ds==='ONLINE'||ds==='INSTÁVEL',dg=S.telem?.diag||{},p=dg.presence,sn=S.sensors||{},t=now();
+  const none=det=>({conn:['SEM DADOS','mut'],act:['—','mut'],det,dot:''});
+  const why=!conn?'conecte ao broker/servidor':S.link!=='ONLINE'?'link '+S.link.toLowerCase():ds==='SEM DADOS'?'aguardando telemetria do ESP32':'ESP32 sem telemetria recente';
+  if(!fresh)return{mpu:none(why),sonar:none(why),enc:none(why),btn:none(why),servo:none(why)};
+  if(!p){const o=none('firmware sem relatório de presença — grave a versão atual do .ino');return{mpu:o,sonar:o,enc:o,btn:o,servo:o}}
+  const R={};
+  // MPU6050
+  R.mpu={OK:{conn:['CONECTADO','ok'],act:['ATIVO','ok'],det:`endereço ${dg.mpuAddr||'—'} · ${dg.mpuHz??'—'} Hz · |a| ${f(S.buf.at(-1)?.am,2)} g`,dot:'ok'},
+    TRAVADO:{conn:['CONECTADO','ok'],act:['VALORES CONGELADOS','warn'],det:'responde no I²C, mas os valores não mudam — desligue e religue o sensor',dot:'warn'},
+    FALHA_LEITURA:{conn:['INSTÁVEL','warn'],act:['FALHA DE LEITURA','bad'],det:`erros de I²C (${dg.mpuErrors??0}) — verifique mau contato em SDA/SCL`,dot:'bad'},
+    NAO_DETECTADO:{conn:['NÃO DETECTADO','bad'],act:['SEM LEITURA','bad'],det:'sem resposta em 0x68/0x69 — verifique SDA=GPIO1, SCL=GPIO0, VCC 3V3 e GND',dot:'bad'}}[p.mpu]||none('estado desconhecido: '+p.mpu);
+  // HC-SR04
+  R.sonar={OK:{conn:['CONECTADO','ok'],act:['ATIVO','ok'],det:`${f(sn.distance,1)} cm · eco ${sn.echoUs??'—'} µs`,dot:'ok'},
+    SEM_ALVO:{conn:['CONECTADO','ok'],act:['SEM ALVO','warn'],det:'responde, mas sem eco válido — aponte para um objeto entre 2 e 400 cm',dot:'warn'},
+    SEM_RESPOSTA:{conn:['NÃO DETECTADO','bad'],act:['SEM LEITURA','bad'],det:'nenhum pulso no ECHO — verifique 5 V, GND, TRIG=GPIO4, ECHO=GPIO3 e o divisor de tensão',dot:'bad'}}[p.sonar]||none('estado desconhecido: '+p.sonar);
+  // KY-040 giro
+  const lastMove=S.encEvents.filter(e=>e.dir).at(-1),moving=p.encoderActive||(lastMove&&t-lastMove.t<10000);
+  R.enc=p.encoder==='DETECTADO'||moving
+    ?{conn:['CONECTADO','ok'],act:moving?['GIRANDO','ok']:['PARADO','mut'],det:`contagem ${Number(sn.encoder)-S.encOff}${moving?'':' · gire para confirmar a leitura'}${dg.encoderInvalid?` · ${dg.encoderInvalid} transições inválidas`:''}`,dot:moving?'ok':'warn'}
+    :{conn:['NÃO DETECTADO','bad'],act:['SEM LEITURA','bad'],det:'sem pull-up em CLK/DT — verifique o pino + do módulo (3V3), GND, CLK=GPIO5 e DT=GPIO6',dot:'bad'};
+  // KY-040 botão
+  R.btn=p.buttonSeen
+    ?{conn:['CONECTADO','ok'],act:sn.encoderBtn?['PRESSIONADO','ok']:['SOLTO','mut'],det:`${dg.buttonPresses??0} acionamentos desde o boot`,dot:'ok'}
+    :{conn:['NÃO CONFIRMADO','warn'],act:sn.encoderBtn?['PRESSIONADO','ok']:['SOLTO','mut'],det:'pressione o botão do encoder para confirmar a ligação em SW=GPIO7',dot:'warn'};
+  // SG90
+  const ack=S.servo.lastAck;
+  R.servo={conn:['NÃO VERIFICÁVEL','warn'],act:p.servoPwm?['PWM ATIVO','ok']:['PWM DESLIGADO','mut'],
+    det:p.servoPwm?`último comando ${sn.servoCommand??'—'}°${ack?.status==='ok'?' confirmado pelo firmware':''} — confira se o eixo se moveu`:'sem realimentação — envie um comando na aba Sensores e observe o movimento',dot:p.servoPwm?'ok':'warn'};
+  return R;
+}
 function setText(id,v){const e=$(id);if(e&&e.textContent!==String(v))e.textContent=v}
 function updConnUI(){
-  const real=cfg.mode==='real',mq=cfg.proto==='mqtt';
-  const tg=$('#modeTag');tg.textContent=real?'ESP32 REAL':'SIMULAÇÃO';tg.className='tag '+(real?'real':'sim');
+  const mq=cfg.proto==='mqtt';
   $('#urlLbl').textContent=mq?'URL do broker (listener WebSocket)':'URL do servidor WebSocket';
   $('#cUrl').value=mq?cfg.mqttUrl:cfg.wsUrl;$('#baseWrap').style.display=mq?'':'none';$('#kaWrap').style.display=mq?'':'none';$('#tQosWrap').style.display=mq?'':'none';
   $('#passLbl').textContent=mq?'Senha':'Token';
-  const busy=!!conn;['#cMode','#cProto','#cUrl','#cBase','#cDev','#cUser','#cPass','#cKa'].forEach(s=>$(s).disabled=busy);
-  if(!real)['#cUrl','#cBase','#cUser','#cPass','#cKa'].forEach(s=>$(s).disabled=true);
+  const busy=!!conn;['#cProto','#cUrl','#cBase','#cDev','#cUser','#cPass','#cKa'].forEach(s=>$(s).disabled=busy);
   $('#btnConn').textContent=busy?'Desconectar':'Conectar';$('#btnConn').className=busy?'dan':'pri';
-  const url=mq?cfg.mqttUrl:cfg.wsUrl;$('#httpsBanner').hidden=!(real&&location.protocol==='https:'&&url.startsWith('ws://'));
+  const url=mq?cfg.mqttUrl:cfg.wsUrl;$('#httpsBanner').hidden=!(location.protocol==='https:'&&url.startsWith('ws://'));
   pill('#pLink',S.link);
 }
 function ui(){
@@ -783,24 +797,20 @@ function ui(){
   setText('#kWifi',ws);$('#kWifi').className='v t-'+cls(ws);
   setText('#kWifiSub',Number.isFinite(w.rssi)?`RSSI ${w.rssi} dBm · ${w.ssid||'—'}`:'RSSI —');
   $('#kRssiBar').style.width=Number.isFinite(w.rssi)?clamp((w.rssi+95)/65*100,0,100)+'%':'0';
-  setText('#kProto',cfg.proto==='mqtt'?'MQTT':'WebSocket');setText('#kProtoSub',(cfg.mode==='sim'?'simulador':cfg.proto==='mqtt'?cfg.mqttUrl:cfg.wsUrl));
+  setText('#kProto',cfg.proto==='mqtt'?'MQTT':'WebSocket');setText('#kProtoSub',cfg.proto==='mqtt'?cfg.mqttUrl:cfg.wsUrl);
   setText('#kUp',Number.isFinite(st.uptimeMs)?fmtDur(st.uptimeMs):'—');setText('#kUpSub','link do painel: '+(ONL(S.link)?fmtDur(t-S.linkSince):S.link));
   setText('#kHz',S.lastTelem?f(hz,0)+' Hz':'—');setText('#kHzSub',`seq ${S.telemSeq??'—'} · perdidas ${S.telemLost} · dup ${S.telemDup}`);
   setText('#kRtt',S.brokerRtt!=null?f(S.brokerRtt,1)+' ms':'—');
   setText('#kHeap',Number.isFinite(st.freeHeap)?f(st.freeHeap/1024,1)+' kB':'—');setText('#kHeapSub','mínima '+(Number.isFinite(st.minHeap)?f(st.minHeap/1024,1)+' kB':'—'));
-  const ls=S.sessions[0];setText('#kLast',ls?f(ls.rtt_med,1)+' ms':'—');setText('#kLastSub',ls?`${ls.protocolo} ${ls.modo} · P99 ${f(ls.p99,1)} · perda ${ls.perda_pct}%`:'nenhum teste de latência');
+  const ls=S.sessions[0];setText('#kLast',ls?f(ls.rtt_med,1)+' ms':'—');setText('#kLastSub',ls?`${ls.protocolo} · P99 ${f(ls.p99,1)} · perda ${ls.perda_pct}%`:'nenhum teste de latência');
   // janelas recentes
   const win=S.buf.filter(b=>b.t>t-10000);const fresh=ds==='ONLINE'||ds==='INSTÁVEL';
   const vd=win.filter(b=>b.dist!=null),toW=win.filter(b=>b.to).length,oorW=win.filter(b=>b.oor).length;
   const last20=vd.slice(-20).map(b=>b.dist),m20=mean(last20),sd=last20.length>1?Math.sqrt(mean(last20.map(v=>(v-m20)**2))):NaN;
-  const lights=[
-    ['#lMpu','#lMpuT',!fresh?'':dg.mpuOk===false?'bad':win.some(b=>b.inv)?'warn':'ok',!fresh?'sem dados':dg.mpuOk===false?'não detectado':`${dg.mpuAddr||'0x68'} · |a| ${f(win.at(-1)?.am,2)} g`],
-    ['#lSon','#lSonT',!fresh?'':!win.length?'':vd.length/win.length<.8?'bad':(toW||oorW)?'warn':'ok',!fresh?'sem dados':`${f(sn.distance,1)} cm · ${toW} timeouts/10 s`],
-    ['#lEnc','#lEncT',!fresh?'':(dg.encoderInvalid>0)?'warn':'ok',!fresh?'sem dados':`contagem ${Number(sn.encoder)-S.encOff}`],
-    ['#lSrv','#lSrvT',!fresh?'':/TIMEOUT|REJEITADO/.test(S.servo.state)?'bad':'ok',!fresh?'sem dados':`cmd ${sn.servoCommand??'—'}° · ${S.servo.state.split(' ')[0]}`]];
-  lights.forEach(([d,tx,c,m])=>{$(d).className='dot '+c;setText(tx,m)});
+  const P=presence();
+  [['Mpu','mpu'],['Son','sonar'],['Enc','enc'],['Btn','btn'],['Srv','servo']].forEach(([id,k])=>{const x=P[k];
+    $('#d'+id).className='dot '+x.dot;setHTML('#c'+id,badge(...x.conn));setHTML('#a'+id,badge(...x.act));setText('#t'+id,x.det)});
   // sensores
-  const sb=S.sensorsSim?'<span class="sim-badge">DADOS SIMULADOS</span>':'';['#simB1','#simB2','#simB3'].forEach(i=>{if($(i).innerHTML!==sb)$(i).innerHTML=sb});
   $('#sDist').firstChild.textContent=Number.isFinite(sn.distance)?f(sn.distance,1):(S.lastTelem?'sem eco':'—');
   setText('#sEcho',Number.isFinite(sn.echoUs)?sn.echoUs+' µs':'—');
   setText('#sValid',win.length?`${vd.length}/${win.length} (${f(vd.length/win.length*100,0)}%)`:'—');
@@ -821,7 +831,7 @@ function ui(){
   setText('#wRssi',Number.isFinite(w.rssi)?`${w.rssi} dBm (${w.rssi>-60?'excelente':w.rssi>-70?'bom':w.rssi>-80?'fraco':'instável'})`:'—');setText('#wCh',w.channel??'—');
   setText('#wConn',Number.isFinite(w.connectMs)?w.connectMs+' ms':'—');setText('#wDisc',w.disconnects??'—');setText('#wRec',Number.isFinite(w.reconnectMs)&&w.reconnectMs?w.reconnectMs+' ms':'—');
   setText('#wHeap',Number.isFinite(st.freeHeap)?`${f(st.freeHeap/1024,1)} / ${f(st.minHeap/1024,1)} kB`:'—');setText('#wReset',st.resetReason||'—');setText('#wFw',st.fw||'—');
-  setText('#bState',S.link);$('#bState').className='t-'+cls(S.link);setText('#bUrl',cfg.mode==='sim'?'simulador local':(cfg.proto==='mqtt'?cfg.mqttUrl:cfg.wsUrl));
+  setText('#bState',S.link);$('#bState').className='t-'+cls(S.link);setText('#bUrl',cfg.proto==='mqtt'?cfg.mqttUrl:cfg.wsUrl);
   setText('#bRtt',S.brokerRtt!=null?f(S.brokerRtt,1)+' ms':'—');setText('#bPuback',cfg.proto==='mqtt'&&S.pubAckMs!=null?f(S.pubAckMs,1)+' ms':'—');
   setText('#bRxTx',`${S.rxCount} / ${S.txCount}`);setText('#bBad',S.bad);setText('#bDrop',S.dropped);setText('#bRec',`${S.linkDrops} / ${S.reconnects.length}`);setText('#bRecAvg',S.reconnects.length?f(mean(S.reconnects.map(r=>r.ms)),0)+' ms':'—');
   const rows=[...S.devices].map(([id,d])=>`<tr><td>${esc(id)}</td><td>${d.n}</td><td>${f((t-d.last)/1000,1)} s</td><td>${id===cfg.deviceId?'<span class="t-ok">● alvo</span>':'—'}</td></tr>`).join('');
@@ -861,7 +871,7 @@ function recs(){
   if(S.telemLost>50)out.push(`${S.telemLost} telemetrias perdidas: reduza a taxa de publicação ou use QoS 1 nos tópicos críticos.`);
   const ls=S.sessions[0];if(ls&&ls.p99>100)out.push(`P99 de ${ls.p99} ms no último teste: para controle de WebXR prefira P99 &lt; 50 ms; teste o outro protocolo e verifique o congestionamento da rede.`);
   if(ls&&ls.perda_pct>1)out.push(`Perda de ${ls.perda_pct}% no último teste: verifique o sinal e, no MQTT, compare QoS 0 × QoS 1.`);
-  if(anyFault().length)out.push('Há falhas simuladas ativas — os resultados atuais não representam o comportamento real.');
+  if(anyFault().length)out.push('Há testes de falha ativos (atraso/descarte) — os resultados de latência não representam o comportamento normal.');
   return out.length?out:['<span class="t-ok">Nenhum problema detectado no momento.</span>'];
 }
 
@@ -872,15 +882,22 @@ async function dWifi(){const w=S.status?.wifi,st=S.status;if(!w||now()-S.lastSta
   const q=w.rssi>-60?'excelente':w.rssi>-70?'bom':w.rssi>-80?'fraco':'instável';const k=w.rssi>-70&&!(w.disconnects>0)?'pass':w.rssi>-80?'warn':'fail';
   addRes(k,'Wi-Fi',`RSSI ${w.rssi} dBm (${q}) · IP ${w.ip} · desconexões ${w.disconnects??0} · heap ${f(st.freeHeap/1024,1)} kB · link ${S.link}`)}
 async function dMpu(){await wait(3000);const b=windowBuf(3000);if(!b.length)return addRes('fail','MPU6050','Nenhuma telemetria em 3 s.');
-  if(b.at(-1).mpuOk===false)return addRes('fail','MPU6050','Sensor não detectado em 0x68/0x69 — verifique SDA=GPIO1/SCL=GPIO0.');
+  const pm=S.telem?.diag?.presence?.mpu;
+  if(pm==='NAO_DETECTADO'||b.at(-1).mpuOk===false)return addRes('fail','MPU6050','Sensor não detectado em 0x68/0x69 — verifique SDA=GPIO1/SCL=GPIO0, 3V3 e GND.');
+  if(pm==='FALHA_LEITURA')return addRes('fail','MPU6050','Sensor responde mas as leituras falham — mau contato em SDA/SCL.');
+  if(pm==='TRAVADO')return addRes('warn','MPU6050','Sensor responde mas os valores estão congelados.');
   const inv=b.filter(x=>x.inv).length,mg=mean(b.filter(x=>!x.inv).map(x=>x.am)),hz=b.length/3;
   const k=inv?'warn':Math.abs(mg-1)>.15?'warn':'pass';addRes(k,'MPU6050',`${b.length} amostras (${f(hz,0)} Hz recebidas) · |a| médio ${f(mg,3)} g${Math.abs(mg-1)>.15?' (fora de 1 g: mantenha parado ou calibre)':''} · inválidas ${inv}`)}
 async function dSonar(){await wait(3000);const b=windowBuf(3000);if(!b.length)return addRes('fail','HC-SR04','Nenhuma telemetria em 3 s.');
+  const ps=S.telem?.diag?.presence?.sonar;
+  if(ps==='SEM_RESPOSTA')return addRes('fail','HC-SR04','Sensor não responde (nenhum pulso no ECHO) — verifique 5 V, GND, TRIG=GPIO4, ECHO=GPIO3 e o divisor.');
+  if(ps==='SEM_ALVO')return addRes('warn','HC-SR04','Sensor conectado, mas sem eco válido — coloque um objeto entre 2 e 400 cm.');
   const v=b.filter(x=>x.dist!=null).map(x=>x.dist),to=b.filter(x=>x.to).length,oor=b.filter(x=>x.oor).length,m=mean(v),sd=v.length>1?Math.sqrt(mean(v.map(x=>(x-m)**2))):NaN,r=v.length/b.length;
   addRes(r>.95&&sd<2?'pass':r>.8?'warn':'fail','HC-SR04',`válidas ${f(r*100,0)}% · média ${f(m,1)} cm · desvio ±${f(sd,2)} cm · timeouts ${to} · fora da faixa ${oor}`)}
 async function dEnc(){toast('Gire o encoder nos dois sentidos e pressione o botão (6 s)');const t0=now(),inv0=S.telem?.diag?.encoderInvalid??0;await wait(6000);
   const ev=S.encEvents.filter(e=>e.t>t0),cw=ev.filter(e=>e.dir>0).length,ccw=ev.filter(e=>e.dir<0).length,btn=ev.filter(e=>e.btn).length,inv=(S.telem?.diag?.encoderInvalid??0)-inv0;
   if(!S.buf.length)return addRes('fail','KY-040','Nenhuma telemetria.');
+  if(S.telem?.diag?.presence?.encoder==='NAO_DETECTADO'&&!cw&&!ccw)return addRes('fail','KY-040','Módulo não detectado — verifique + (3V3), GND, CLK=GPIO5, DT=GPIO6.');
   addRes(cw&&ccw&&btn&&inv<=2?'pass':(cw||ccw)?'warn':'fail','KY-040',`horário ${cw} · anti-horário ${ccw} · botão ${btn} · transições inválidas ${inv}${!cw&&!ccw?' — nenhuma rotação detectada (CLK=GPIO5, DT=GPIO6)':''}${!btn?' · botão não detectado (SW=GPIO7)':''}`)}
 async function dServo(){const a=[cfg.servoMin,Math.round((cfg.servoMin+cfg.servoMax)/2),cfg.servoMax];
   if(!confirm(`O servo vai se mover para ${a.join('°, ')}°. A área está livre?`))return addRes('warn','SG90','Teste cancelado pelo usuário.');
@@ -895,13 +912,13 @@ async function moveTest(){if(!S.buf.length)return toast('Sem telemetria');const 
   const mv=sd>.05||gmax>30;r.textContent=`${mv?'Movimento detectado':'Nenhum movimento'} · σ|a| ${f(sd,3)} g · giro máx ${f(gmax,0)} °/s`;r.className=mv?'t-ok':'t-warn';log(mv?'ok':'warn','Teste de movimentação: '+r.textContent)}
 
 /* ---------- relatórios ---------- */
-const COLS=['data','modo','protocolo','qos','duracao_s','taxa_hz','enviadas','confirmadas','nao_confirmadas','atrasadas','duplicadas','perda_pct','rtt_min','rtt_med','rtt_max','p95','p99','jitter','msg_s','proc_med_ms','rede_med_ms','render_ms','reconexoes','reconexao_med_ms','quedas','rssi_med','falhas','interrompido'];
+const COLS=['data','protocolo','qos','duracao_s','taxa_hz','enviadas','confirmadas','nao_confirmadas','atrasadas','duplicadas','perda_pct','rtt_min','rtt_med','rtt_max','p95','p99','jitter','msg_s','proc_med_ms','rede_med_ms','render_ms','reconexoes','reconexao_med_ms','quedas','rssi_med','falhas','interrompido'];
 function renderSessions(){
-  const tb=$('#sesTable');tb.innerHTML=S.sessions.length?S.sessions.map(r=>`<tr><td>${new Date(r.data).toLocaleString('pt-BR')}</td><td class="${r.modo==='REAL'?'t-info':'t-warn'}">${r.modo}</td><td>${r.protocolo}</td><td>${r.qos}</td><td>${r.duracao_s}s</td><td>${r.taxa_hz}</td><td>${r.enviadas}/${r.confirmadas}</td><td class="${r.perda_pct>1?'t-bad':''}">${r.perda_pct}%</td><td>${r.duplicadas}</td><td>${f(r.rtt_min,1)}</td><td>${f(r.rtt_med,1)}</td><td>${f(r.rtt_max,1)}</td><td>${f(r.p95,1)}</td><td>${f(r.p99,1)}</td><td>${f(r.jitter,2)}</td><td>${r.msg_s}</td><td>${r.reconexoes}</td><td class="${r.falhas?'t-bad':'t-mut'}">${esc(r.falhas||'—')}</td></tr>`).join(''):'<tr><td colspan="18" class="t-mut">Nenhuma sessão. Rode um teste na aba Latência.</td></tr>';
+  const tb=$('#sesTable');tb.innerHTML=S.sessions.length?S.sessions.map(r=>`<tr><td>${new Date(r.data).toLocaleString('pt-BR')}</td><td>${r.protocolo}</td><td>${r.qos}</td><td>${r.duracao_s}s</td><td>${r.taxa_hz}</td><td>${r.enviadas}/${r.confirmadas}</td><td class="${r.perda_pct>1?'t-bad':''}">${r.perda_pct}%</td><td>${r.duplicadas}</td><td>${f(r.rtt_min,1)}</td><td>${f(r.rtt_med,1)}</td><td>${f(r.rtt_max,1)}</td><td>${f(r.p95,1)}</td><td>${f(r.p99,1)}</td><td>${f(r.jitter,2)}</td><td>${r.msg_s}</td><td>${r.reconexoes}</td><td class="${r.falhas?'t-bad':'t-mut'}">${esc(r.falhas||'—')}</td></tr>`).join(''):'<tr><td colspan="17" class="t-mut">Nenhuma sessão. Rode um teste na aba Latência.</td></tr>';
   const m=S.sessions.find(r=>r.protocolo==='MQTT'),w=S.sessions.find(r=>r.protocolo==='WebSocket');
   const met=[['RTT médio (ms)','rtt_med',-1],['RTT mín. (ms)','rtt_min',-1],['RTT máx. (ms)','rtt_max',-1],['P95 (ms)','p95',-1],['P99 (ms)','p99',-1],['Jitter (ms)','jitter',-1],['Perda (%)','perda_pct',-1],['Duplicadas','duplicadas',-1],['msg/s','msg_s',1],['Processamento ESP32 (ms)','proc_med_ms',-1],['Rede (ms)','rede_med_ms',-1],['Reconexão média (ms)','reconexao_med_ms',-1]];
   $('#cmpTable').innerHTML=met.map(([l,k,dir])=>{const a=m?.[k],b=w?.[k];let best='—';if(Number.isFinite(a)&&Number.isFinite(b)&&a!==b)best=(dir<0?a<b:a>b)?'MQTT':'WebSocket';else if(Number.isFinite(a)&&a===b)best='empate';return`<tr><td style="font-family:inherit">${l}</td><td>${Number.isFinite(a)?a:'—'}</td><td>${Number.isFinite(b)?b:'—'}</td><td class="t-ok">${best}</td></tr>`}).join('');
-  let n='Usa o teste mais recente de cada protocolo.';if(m&&w){if(m.modo!==w.modo)n+=' ⚠ Os testes comparados têm modos diferentes (real × simulado).';if(m.taxa_hz!==w.taxa_hz||Math.abs(m.duracao_s-w.duracao_s)>2)n+=' ⚠ Taxa ou duração diferentes — repita com os mesmos parâmetros.';if(m.falhas||w.falhas)n+=' ⚠ Há teste com falha simulada ativa.'}$('#cmpNote').textContent=n;
+  let n='Usa o teste mais recente de cada protocolo.';if(m&&w){if(m.taxa_hz!==w.taxa_hz||Math.abs(m.duracao_s-w.duracao_s)>2)n+=' ⚠ Taxa ou duração diferentes — repita com os mesmos parâmetros.';if(m.falhas||w.falhas)n+=' ⚠ Há teste com falha simulada ativa.'}$('#cmpNote').textContent=n;
 }
 function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
 const csvCell=v=>{v=v==null?'':String(v);return/[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
@@ -909,8 +926,7 @@ const stamp=()=>new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
 
 /* ---------- eventos da interface ---------- */
 $$('.tabs button').forEach(b=>b.onclick=()=>{$$('.tabs button').forEach(x=>x.classList.toggle('on',x===b));$$('.tab').forEach(t=>t.classList.toggle('on',t.id==='tab-'+b.dataset.tab));charts.forEach(c=>c.dirty=true)});
-$('#cMode').value=cfg.mode;$('#cProto').value=cfg.proto;$('#cBase').value=cfg.base;$('#cDev').value=cfg.deviceId;$('#cUser').value=cfg.user;$('#cKa').value=cfg.keepalive;$('#srvMin').value=cfg.servoMin;$('#srvMax').value=cfg.servoMax;
-$('#cMode').onchange=e=>{cfg.mode=e.target.value;saveCfg();updConnUI()};
+$('#cProto').value=cfg.proto;$('#cBase').value=cfg.base;$('#cDev').value=cfg.deviceId;$('#cUser').value=cfg.user;$('#cKa').value=cfg.keepalive;$('#srvMin').value=cfg.servoMin;$('#srvMax').value=cfg.servoMax;
 $('#cProto').onchange=e=>{cfg.proto=e.target.value;saveCfg();updConnUI()};
 $('#cUrl').onchange=e=>{const v=e.target.value.trim();if(cfg.proto==='mqtt')cfg.mqttUrl=v;else cfg.wsUrl=v;saveCfg();updConnUI()};
 $('#cBase').onchange=e=>{cfg.base=e.target.value.trim().replace(/\/+$/,'')||DEF.base;e.target.value=cfg.base;saveCfg()};
@@ -919,10 +935,10 @@ $('#cUser').onchange=e=>{cfg.user=e.target.value;saveCfg()};$('#cPass').onchange
 $('#cKa').onchange=e=>{cfg.keepalive=clamp(+e.target.value||15,5,120);e.target.value=cfg.keepalive;saveCfg()};
 $('#btnConn').onclick=()=>{
   if(conn){stopTest();conn.close();conn=null;updConnUI();return}
-  if(cfg.mode==='real'){const u=cfg.proto==='mqtt'?cfg.mqttUrl:cfg.wsUrl;if(!/^wss?:\/\//.test(u))return toast('A URL deve começar com ws:// ou wss://')}
+  {const u=cfg.proto==='mqtt'?cfg.mqttUrl:cfg.wsUrl;if(!/^wss?:\/\//.test(u))return toast('A URL deve começar com ws:// ou wss://')}
   S.telemSeq=null;S.lastTelem=0;S.lastStatus=0;S.status=null;S.telem=null;S.sensors=null;S.devices.clear();S.lastEnc=null;S.lastWifiDisc=null;S.brokerRtt=null;S.pubAckMs=null;
-  conn=cfg.mode==='sim'?new SimConn():cfg.proto==='mqtt'?new MqttConn():new WsConn();
-  log('info',`Conectando — ${cfg.mode==='sim'?'SIMULADOR':'ESP32 real'} via ${cfg.proto==='mqtt'?'MQTT':'WebSocket'}`);
+  conn=cfg.proto==='mqtt'?new MqttConn():new WsConn();
+  log('info',`Conectando via ${cfg.proto==='mqtt'?'MQTT':'WebSocket'} — ${cfg.proto==='mqtt'?cfg.mqttUrl:cfg.wsUrl}`);
   updConnUI();conn.connect();
 };
 const rng=$('#srvRange');
@@ -938,11 +954,10 @@ $('#btnTest').onclick=startTest;
 $$('[data-diag]').forEach(b=>b.onclick=()=>runDiag(b.dataset.diag));
 $('#btnClrRes').onclick=()=>$('#diagRes').innerHTML='<div>Nenhum teste executado.</div>';
 $('#fNet').onclick=()=>{if(!conn)return toast('Conecte primeiro');conn.kill()};
-$('#fBroker').onclick=()=>{if(!conn)return toast('Conecte primeiro');S.faults.blockUntil=now()+10000;log('warn','Falha simulada: servidor/broker indisponível por 10 s');cancelServoPending('falha simulada');conn.kill();setTimeout(()=>log('info','Fim da indisponibilidade simulada'),10000)};
-$('#fDelay').oninput=e=>{S.faults.delay=+e.target.value;$('#fDelayV').textContent=S.faults.delay+' ms'};$('#fDelay').onchange=()=>{log(S.faults.delay?'warn':'info',`Atraso artificial: ${S.faults.delay} ms`);if(S.faults.delay)cancelServoPending('falha simulada')};
-$('#fDrop').oninput=e=>{S.faults.drop=+e.target.value;$('#fDropV').textContent=S.faults.drop+' %'};$('#fDrop').onchange=()=>{log(S.faults.drop?'warn':'info',`Descarte simulado: ${S.faults.drop}%`);if(S.faults.drop)cancelServoPending('falha simulada')};
-$('#fSens').onchange=e=>{S.faults.sensorSim=e.target.checked;log(e.target.checked?'warn':'info',`Sensores simulados ${e.target.checked?'ATIVADOS':'desativados'}`)};
-$('#fClear').onclick=()=>{S.faults={delay:0,drop:0,sensorSim:false,blockUntil:0};$('#fDelay').value=0;$('#fDrop').value=0;$('#fSens').checked=false;$('#fDelayV').textContent='0 ms';$('#fDropV').textContent='0 %';log('ok','Todas as falhas simuladas foram removidas')};
+$('#fBroker').onclick=()=>{if(!conn)return toast('Conecte primeiro');S.faults.blockUntil=now()+10000;log('warn','Teste de falha: servidor/broker indisponível por 10 s');cancelServoPending('teste de falha');conn.kill();setTimeout(()=>log('info','Fim da indisponibilidade simulada'),10000)};
+$('#fDelay').oninput=e=>{S.faults.delay=+e.target.value;$('#fDelayV').textContent=S.faults.delay+' ms'};$('#fDelay').onchange=()=>{log(S.faults.delay?'warn':'info',`Atraso artificial: ${S.faults.delay} ms`);if(S.faults.delay)cancelServoPending('teste de falha')};
+$('#fDrop').oninput=e=>{S.faults.drop=+e.target.value;$('#fDropV').textContent=S.faults.drop+' %'};$('#fDrop').onchange=()=>{log(S.faults.drop?'warn':'info',`Descarte simulado: ${S.faults.drop}%`);if(S.faults.drop)cancelServoPending('teste de falha')};
+$('#fClear').onclick=()=>{S.faults={delay:0,drop:0,blockUntil:0};$('#fDelay').value=0;$('#fDrop').value=0;$('#fDelayV').textContent='0 ms';$('#fDropV').textContent='0 %';log('ok','Todas as falhas simuladas foram removidas')};
 $('#logF').onchange=redrawLog;
 $('#btnLogClr').onclick=()=>{LOG.length=0;$('#log').innerHTML=''};
 $('#btnLogExp').onclick=()=>download(`iotlab-log-${stamp()}.csv`,'\ufeffdata_hora;nivel;mensagem\n'+LOG.map(e=>[e.t.toISOString(),e.lvl,e.msg].map(csvCell).join(';')).join('\n'),'text/csv');
@@ -957,7 +972,7 @@ updConnUI();setReq(90);renderSessions();
 setInterval(ui,250);setInterval(()=>{$('#recs').innerHTML=recs().map(r=>`<li>${r}</li>`).join('')},2000);
 requestAnimationFrame(frame);
 window.addEventListener('resize',()=>charts.forEach(c=>c.dirty=true));
-log('info','IoT Connectivity & Diagnostics Lab pronto. Use o modo Simulador para validar a interface ou ESP32 real para o kit.');
+log('info','IoT Connectivity & Diagnostics Lab pronto. Informe o IP do broker/servidor e clique em Conectar.');
 </script>
 </body>
 </html>
